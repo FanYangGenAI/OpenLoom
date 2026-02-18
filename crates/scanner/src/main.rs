@@ -13,6 +13,9 @@ use walker::{run_scan, WalkerConfig};
 
 /// High-performance parallel file system scanner for OpenLoom.
 /// Outputs one NDJSON record per file to stdout, with a summary as the final line.
+///
+/// By default, system and application directories (Library, AppData, .cache,
+/// node_modules, etc.) are skipped. Use --include-system to scan them.
 #[derive(Parser, Debug)]
 #[command(name = "openloom-scanner", version, about)]
 struct Cli {
@@ -27,9 +30,19 @@ struct Cli {
     #[arg(long)]
     no_hidden: bool,
 
-    /// Directory names to skip (repeatable, e.g. -i node_modules -i vendor)
+    /// Directory names to skip (repeatable, e.g. -i vendor -i tmp)
     #[arg(short = 'i', long = "ignore", value_name = "NAME")]
     ignores: Vec<String>,
+
+    /// Include system/application directories (Library, AppData, .cache, etc.)
+    /// that are skipped by default
+    #[arg(long)]
+    include_system: bool,
+
+    /// Only output personal content: images, documents, videos, and audio.
+    /// Skips archives, code, binaries, and other non-personal files.
+    #[arg(long)]
+    personal: bool,
 
     /// Follow symbolic links
     #[arg(long)]
@@ -70,6 +83,8 @@ fn main() {
         threads,
         follow_symlinks: cli.follow_symlinks,
         skip_hidden: cli.no_hidden,
+        skip_system: !cli.include_system,
+        personal_only: cli.personal,
         extra_ignores: cli.ignores,
         show_progress: cli.progress,
         summary_only: cli.summary_only,

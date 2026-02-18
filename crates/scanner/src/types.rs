@@ -12,6 +12,14 @@ pub enum FileType {
     Other,
 }
 
+impl FileType {
+    /// Returns true for file types that represent personal user content
+    /// (photos, documents, videos, music) — the types OpenLoom cares about.
+    pub fn is_personal(&self) -> bool {
+        matches!(self, FileType::Image | FileType::Document | FileType::Video | FileType::Audio)
+    }
+}
+
 #[derive(Debug, Serialize)]
 pub struct FileEntry {
     pub path: String,

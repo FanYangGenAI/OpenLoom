@@ -14,6 +14,8 @@ pub struct WalkerConfig {
     pub threads: usize,
     pub follow_symlinks: bool,
     pub skip_hidden: bool,
+    pub skip_system: bool,
+    pub personal_only: bool,
     pub extra_ignores: Vec<String>,
     pub show_progress: bool,
     pub summary_only: bool,
@@ -23,7 +25,7 @@ pub fn run_scan(config: WalkerConfig) -> ScanSummary {
     let start = Instant::now();
     let root = Path::new(&config.root);
 
-    let ignore_rules = Arc::new(IgnoreRules::new(&config.extra_ignores, config.skip_hidden));
+    let ignore_rules = Arc::new(IgnoreRules::new(&config.extra_ignores, config.skip_system));
     let skip_hidden = config.skip_hidden;
 
     let progress = Arc::new(ProgressReporter::new(config.show_progress));
@@ -86,6 +88,11 @@ pub fn run_scan(config: WalkerConfig) -> ScanSummary {
                     .unwrap_or_default();
 
                 let file_type = classify_extension(&ext);
+
+                if config.personal_only && !file_type.is_personal() {
+                    continue;
+                }
+
                 let size = metadata.len();
 
                 let mtime_ms = metadata

@@ -1,19 +1,18 @@
 use std::collections::HashSet;
 
 pub struct IgnoreRules {
-    dir_names: HashSet<String>,
+    always_skip: HashSet<String>,
+    system_skip: HashSet<String>,
+    skip_system: bool,
 }
 
-const DEFAULT_IGNORE_DIRS: &[&str] = &[
+/// Directories that are never useful — VCS, OS metadata, trash
+const ALWAYS_IGNORE_DIRS: &[&str] = &[
+    // Version control
     ".git",
     ".svn",
     ".hg",
-    "node_modules",
-    ".pnpm-store",
-    ".venv",
-    "venv",
-    "__pycache__",
-    ".tox",
+    // OS metadata & trash
     ".Trash",
     ".Trashes",
     "$RECYCLE.BIN",
@@ -22,35 +21,109 @@ const DEFAULT_IGNORE_DIRS: &[&str] = &[
     ".fseventsd",
     ".TemporaryItems",
     ".VolumeIcon.icns",
+    ".DocumentRevisions-V100",
+    ".PKInstallSandboxManager-SystemSoftware",
+];
+
+/// System, application, and developer directories — skipped by default.
+/// These contain app caches, runtimes, build artifacts, etc.
+/// Use --include-system to scan them.
+const SYSTEM_DIRS: &[&str] = &[
+    // macOS system
+    "Library",
+    "Applications",
+    ".vol",
+    // Windows system
+    "AppData",
+    "ProgramData",
+    "Windows",
+    "Program Files",
+    "Program Files (x86)",
+    // Linux system
+    "snap",
+    // Package managers & language runtimes
+    "node_modules",
+    ".pnpm-store",
+    ".npm",
+    ".yarn",
+    ".bun",
+    ".cargo",
+    ".rustup",
+    "go",
+    ".go",
+    ".conda",
+    ".pyenv",
+    ".rbenv",
+    ".nvm",
+    ".volta",
+    ".sdkman",
+    ".venv",
+    "venv",
+    "__pycache__",
+    ".tox",
+    ".m2",
+    ".cocoapods",
+    ".pub-cache",
+    ".nuget",
+    ".gem",
+    ".cpan",
+    ".docker",
+    ".colima",
+    ".orbstack",
+    // Build & output directories
+    "target",
+    "build",
+    "dist",
+    "out",
+    ".output",
+    ".next",
+    ".nuxt",
+    "Pods",
     "DerivedData",
     ".gradle",
+    ".build",
+    // IDE & editor directories
     ".idea",
     ".vs",
-    "target", // Rust build output
+    ".vscode",
+    ".eclipse",
+    // Cache & config (rarely contain user content)
+    ".cache",
+    ".local",
+    ".config",
+    ".dbus",
+    ".fontconfig",
+    // Cloud storage metadata (not the actual synced files)
+    ".dropbox",
+    ".dropbox.cache",
+    // Misc
+    ".Trash-1000",
+    "lost+found",
 ];
 
 impl IgnoreRules {
-    pub fn new(extra_ignores: &[String], skip_hidden: bool) -> Self {
-        let mut dir_names: HashSet<String> = DEFAULT_IGNORE_DIRS
+    pub fn new(extra_ignores: &[String], skip_system: bool) -> Self {
+        let always_skip: HashSet<String> = ALWAYS_IGNORE_DIRS
             .iter()
             .map(|s| s.to_string())
+            .chain(extra_ignores.iter().cloned())
             .collect();
 
-        for name in extra_ignores {
-            dir_names.insert(name.clone());
-        }
+        let system_skip: HashSet<String> =
+            SYSTEM_DIRS.iter().map(|s| s.to_string()).collect();
 
-        if skip_hidden {
-            // Hidden dirs are handled in should_skip_dir via the dot-prefix check,
-            // not by adding them to the set. This flag is checked in should_skip_dir.
+        Self {
+            always_skip,
+            system_skip,
+            skip_system,
         }
-        let _ = skip_hidden; // stored implicitly in the caller
-
-        Self { dir_names }
     }
 
     pub fn should_skip_dir(&self, name: &str, skip_hidden: bool) -> bool {
-        if self.dir_names.contains(name) {
+        if self.always_skip.contains(name) {
+            return true;
+        }
+        if self.skip_system && self.system_skip.contains(name) {
             return true;
         }
         if skip_hidden && name.starts_with('.') && name != "." && name != ".." {
@@ -63,7 +136,6 @@ impl IgnoreRules {
         if skip_hidden && name.starts_with('.') && name != "." && name != ".." {
             return true;
         }
-        // Skip well-known junk files
         matches!(
             name,
             ".DS_Store" | "Thumbs.db" | "desktop.ini" | ".directory"
@@ -76,11 +148,29 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_default_ignores() {
+    fn test_always_ignores() {
         let rules = IgnoreRules::new(&[], false);
         assert!(rules.should_skip_dir(".git", false));
+        assert!(rules.should_skip_dir(".Trash", false));
+    }
+
+    #[test]
+    fn test_system_dirs_skipped_by_default() {
+        let rules = IgnoreRules::new(&[], true);
+        assert!(rules.should_skip_dir("Library", false));
         assert!(rules.should_skip_dir("node_modules", false));
+        assert!(rules.should_skip_dir(".cache", false));
+        assert!(rules.should_skip_dir("AppData", false));
         assert!(!rules.should_skip_dir("Documents", false));
+        assert!(!rules.should_skip_dir("Pictures", false));
+    }
+
+    #[test]
+    fn test_system_dirs_included_when_disabled() {
+        let rules = IgnoreRules::new(&[], false);
+        assert!(!rules.should_skip_dir("Library", false));
+        assert!(!rules.should_skip_dir("node_modules", false));
+        assert!(!rules.should_skip_dir(".cache", false));
     }
 
     #[test]
@@ -104,5 +194,14 @@ mod tests {
         assert!(rules.should_skip_file(".DS_Store", false));
         assert!(rules.should_skip_file("Thumbs.db", false));
         assert!(!rules.should_skip_file("photo.jpg", false));
+    }
+
+    #[test]
+    fn test_user_dirs_never_skipped() {
+        let rules = IgnoreRules::new(&[], true);
+        let user_dirs = ["Documents", "Desktop", "Pictures", "Music", "Movies", "Downloads"];
+        for dir in &user_dirs {
+            assert!(!rules.should_skip_dir(dir, false), "{dir} should not be skipped");
+        }
     }
 }
