@@ -1,6 +1,7 @@
 .idea/
 openclaw/
 doc/
+tasks/
 
 # Rust build artifacts
 **/target/
