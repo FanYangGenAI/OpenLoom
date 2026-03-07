@@ -120,11 +120,13 @@ async function handleScanStart(ws: WebSocket, data: { path: string; personal?: b
       fileCount++;
 
       // Send progress every 100 files
+      const isDir = entry.is_dir;
       if (fileCount % 100 === 0) {
         ws.send(JSON.stringify({
           type: 'scan.progress',
           data: {
             files_scanned: fileCount,
+            dirs_scanned: batchWriter['dirsScanned'] || 0,
             current_path: entry.path
           }
         }));

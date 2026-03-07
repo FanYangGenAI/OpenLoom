@@ -81,11 +81,14 @@ function handleMessage(data) {
         break;
       case 'scan.completed':
         hideProgress();
-        addAssistantMessage(`Scan completed! Found ${message.data.summary.total_files} files.`);
+        addAssistantMessage(`Scan completed! Found ${message.data.total_files} files.`);
         break;
       case 'scan.failed':
         hideProgress();
         addAssistantMessage(`Scan failed: ${message.data.error}`);
+        break;
+      case 'scan.started':
+        // Scan has started, waiting for progress
         break;
       case 'chat.message':
         addAssistantMessage(message.data.content, message.data.html);
@@ -163,7 +166,8 @@ function scrollToBottom() {
 // Progress
 function showProgress(data) {
   progressContainer.style.display = 'block';
-  const { files_scanned, dirs_scanned, current_path } = data;
+  const files_scanned = data.files_scanned || 0;
+  const dirs_scanned = data.dirs_scanned || 0;
   progressFill.style.width = '50%'; // Indeterminate
   progressText.textContent = `Scanned: ${files_scanned} files, ${dirs_scanned} directories`;
 }
