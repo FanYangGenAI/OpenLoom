@@ -73,19 +73,19 @@ function handleApiRequest(req: http.IncomingMessage, res: http.ServerResponse, d
       let whereClause = '';
       const params: any[] = [];
       if (type) {
-        whereClause = 'WHERE f.file_type = ?';
+        whereClause = 'WHERE files.file_type = ?';
         params.push(type);
       }
       
       const files = db.prepare(`
-        SELECT f.id, f.name, f.path, f.ext, f.file_type, f.size, f.mtime_ms,
-               e.summary, e.keywords, e.time_entities, e.space_entities, e.person_entities
-        FROM files f
-        LEFT JOIN extractions e ON f.path = e.file_path
+        SELECT files.id, files.name, files.path, files.ext, files.file_type, files.size, files.mtime_ms,
+               extractions.summary, extractions.keywords, extractions.time_entities, extractions.space_entities, extractions.person_entities
+        FROM files
+        LEFT JOIN extractions ON files.path = extractions.file_path
         ${whereClause}
-        ORDER BY f.id
-        LIMIT ? OFFSET ?
-      `).all(...params, limit, offset) as any[];
+        ORDER BY files.id
+        LIMIT ${limit} OFFSET ${offset}
+      `).all(...params) as any[];
       
       const total = db.prepare(`
         SELECT COUNT(*) as count FROM files ${whereClause}
