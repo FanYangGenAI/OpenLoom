@@ -5,15 +5,23 @@ import { readFileSync, existsSync } from 'fs';
 import { join, extname, resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { createScanner } from '../ingestion/scanner/scanner.js';
-import { openDatabase, closeDatabase } from '../knowledge/index/schema.js';
 import { createBatchWriter } from '../knowledge/index/writer.js';
 
-import { dirname, resolve } from 'path';
-import { fileURLToPath } from 'url';
+const DEFAULT_DB_PATH = process.env.DB_PATH || '/Users/fanyang/.jarvis/data/demo-yangfan.db';
+let Database: any = null;
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const DEFAULT_PORT = 3000;
-const UI_DIR = resolve(__dirname, '..', '..', 'dev-ui');
+/**
+ * Open or create database
+ */
+async function openDatabase(dbPath?: string): Promise<any> {
+  if (!Database) {
+    Database = (await import('better-sqlite3')).default;
+  }
+  const path = dbPath || DEFAULT_DB_PATH;
+  const db = new Database(path);
+  db.pragma('journal_mode = WAL');
+  return db;
+}
 
 // MIME types
 const MIME_TYPES = {
@@ -28,10 +36,89 @@ const MIME_TYPES = {
 };
 
 /**
- * Create HTTP server with static file serving
+ * Handle API requests
  */
-function createServer(port: number): http.Server {
+function handleApiRequest(req: http.IncomingMessage, res: http.ServerResponse, db: ReturnType<typeof openDatabase>): void {
+  const url = req.url || '';
+  
+  // GET /api/stats - 返回统计信息
+  if (url === '/api/stats') {
+    try {
+      const stats = db.prepare(`
+        SELECT file_type, COUNT(*) as count 
+        FROM files 
+        GROUP BY file_type
+      `).all() as { file_type: string; count: number }[];
+      
+      const total = stats.reduce((sum, s) => sum + s.count, 0);
+      
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ total, by_type: stats }));
+    } catch (err) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: String(err) }));
+    }
+    return;
+  }
+  
+  // GET /api/files - 返回文件列表（支持分页）
+  if (url.startsWith('/api/files')) {
+    try {
+      const urlObj = new URL(url, 'http://localhost');
+      const page = parseInt(urlObj.searchParams.get('page') || '1');
+      const limit = parseInt(urlObj.searchParams.get('limit') || '20');
+      const offset = (page - 1) * limit;
+      const type = urlObj.searchParams.get('type');
+      
+      let whereClause = '';
+      const params: any[] = [];
+      if (type) {
+        whereClause = 'WHERE f.file_type = ?';
+        params.push(type);
+      }
+      
+      const files = db.prepare(`
+        SELECT f.id, f.name, f.path, f.ext, f.file_type, f.size, f.mtime_ms,
+               e.summary, e.keywords, e.time_entities, e.space_entities, e.person_entities
+        FROM files f
+        LEFT JOIN extractions e ON f.path = e.file_path
+        ${whereClause}
+        ORDER BY f.id
+        LIMIT ? OFFSET ?
+      `).all(...params, limit, offset) as any[];
+      
+      const total = db.prepare(`
+        SELECT COUNT(*) as count FROM files ${whereClause}
+      `).get(...params) as { count: number };
+      
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ 
+        files, 
+        pagination: { page, limit, total: total.count }
+      }));
+    } catch (err) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: String(err) }));
+    }
+    return;
+  }
+  
+  // 404 for unknown API
+  res.writeHead(404, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify({ error: 'Not found' }));
+}
+
+/**
+ * Create HTTP server with static file serving + API
+ */
+function createServer(port: number, db: ReturnType<typeof openDatabase>): http.Server {
   const server = createStaticServer((req, res) => {
+    // API Endpoints
+    if (req.url?.startsWith('/api/')) {
+      handleApiRequest(req, res, db);
+      return;
+    }
+
     let filePath = req.url === '/' ? '/index.html' : req.url;
     filePath = join(UI_DIR, filePath);
 
@@ -165,13 +252,17 @@ function handleChatMessage(ws: WebSocket, data: { content: string }): void {
   }));
 }
 
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const DEFAULT_PORT = 3000;
+const UI_DIR = resolve(__dirname, '..', '..', 'dev-ui');
+
 /**
  * Start the gateway server
  */
 export async function startGateway(port = DEFAULT_PORT): Promise<void> {
-  const db = openDatabase();
+  const db = await openDatabase();
   
-  const server = createServer(port);
+  const server = createServer(port, db);
   
   // Create WebSocket server
   const wss = new WebSocketServer({ server });

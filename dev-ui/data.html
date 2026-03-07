@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OpenLoom - Data Viewer</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    .data-page { padding: 20px; }
+    .stats-grid { 
+      display: grid; 
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); 
+      gap: 16px; 
+      margin-bottom: 24px;
+    }
+    .stat-card {
+      background: var(--bg-secondary, #f5f5f5);
+      border-radius: 8px;
+      padding: 20px;
+      text-align: center;
+    }
+    .stat-card .number {
+      font-size: 36px;
+      font-weight: bold;
+      color: var(--primary, #007AFF);
+    }
+    .stat-card .label {
+      font-size: 14px;
+      color: #666;
+      margin-top: 8px;
+    }
+    .filter-bar {
+      margin-bottom: 16px;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    .filter-bar select {
+      padding: 8px 12px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+    .data-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+    .data-table th, .data-table td {
+      padding: 12px;
+      text-align: left;
+      border-bottom: 1px solid #eee;
+    }
+    .data-table th {
+      background: #f9f9f9;
+      font-weight: 600;
+      position: sticky;
+      top: 0;
+    }
+    .data-table tr:hover {
+      background: #f5f5f5;
+    }
+    .data-table .type-badge {
+      display: inline-block;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: 500;
+    }
+    .type-badge.document { background: #e3f2fd; color: #1976d2; }
+    .type-badge.image { background: #f3e5f5; color: #7b1fa2; }
+    .type-badge.pdf { background: #ffebee; color: #c62828; }
+    .pagination {
+      margin-top: 16px;
+      display: flex;
+      justify-content: center;
+      gap: 8px;
+      align-items: center;
+    }
+    .pagination button {
+      padding: 8px 16px;
+      border: 1px solid #ddd;
+      background: white;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .pagination button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    .pagination .info {
+      color: #666;
+      font-size: 14px;
+    }
+    .entity-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+    }
+    .entity-tag {
+      background: #eee;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-size: 11px;
+    }
+    .nav-bar {
+      display: flex;
+      gap: 16px;
+      padding: 12px 20px;
+      background: #fff;
+      border-bottom: 1px solid #eee;
+      margin: -20px -20px 20px -20px;
+    }
+    .nav-bar a {
+      text-decoration: none;
+      color: #666;
+      padding: 8px 16px;
+      border-radius: 4px;
+    }
+    .nav-bar a.active {
+      background: #007AFF;
+      color: white;
+    }
+    .loading {
+      text-align: center;
+      padding: 40px;
+      color: #666;
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="status-bar">
+      <div class="status-left">
+        <span style="font-weight: bold;">OpenLoom - Data Viewer</span>
+      </div>
+      <div class="status-right">
+        <a href="/" class="btn btn-small">← Back to Chat</a>
+      </div>
+    </header>
+
+    <main class="messages" style="padding: 20px;">
+      <div class="data-page">
+        <!-- Statistics -->
+        <h2>📊 Statistics</h2>
+        <div class="stats-grid" id="statsGrid">
+          <div class="loading">Loading stats...</div>
+        </div>
+
+        <!-- Filter -->
+        <div class="filter-bar">
+          <label>Filter by type:</label>
+          <select id="typeFilter">
+            <option value="">All Types</option>
+            <option value="document">Document</option>
+            <option value="image">Image</option>
+            <option value="pdf">PDF</option>
+          </select>
+          <span class="info" id="totalInfo"></span>
+        </div>
+
+        <!-- Data Table -->
+        <div style="max-height: 500px; overflow-y: auto;">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>File Name</th>
+                <th>Type</th>
+                <th>Summary</th>
+                <th>Keywords</th>
+                <th>Time</th>
+                <th>Space</th>
+                <th>Person</th>
+              </tr>
+            </thead>
+            <tbody id="filesTable">
+              <tr><td colspan="7" class="loading">Loading data...</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Pagination -->
+        <div class="pagination" id="pagination">
+          <button id="prevBtn" onclick="changePage(-1)">← Previous</button>
+          <span class="info" id="pageInfo">Page 1</span>
+          <button id="nextBtn" onclick="changePage(1)">Next →</button>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    let currentPage = 1;
+    let currentType = '';
+    const limit = 20;
+
+    async function loadStats() {
+      try {
+        const res = await fetch('/api/stats');
+        const data = await res.json();
+        
+        const typeLabels = { document: 'Documents', image: 'Images', pdf: 'PDF' };
+        
+        let html = `<div class="stat-card"><div class="number">${data.total}</div><div class="label">Total Files</div></div>`;
+        for (const t of data.by_type) {
+          html += `<div class="stat-card"><div class="number">${t.count}</div><div class="label">${typeLabels[t.file_type] || t.file_type}</div></div>`;
+        }
+        document.getElementById('statsGrid').innerHTML = html;
+      } catch (e) {
+        document.getElementById('statsGrid').innerHTML = '<div class="stat-card">Failed to load stats</div>';
+      }
+    }
+
+    async function loadFiles() {
+      try {
+        let url = `/api/files?page=${currentPage}&limit=${limit}`;
+        if (currentType) url += `&type=${currentType}`;
+        
+        const res = await fetch(url);
+        const data = await res.json();
+        
+        // Update total info
+        document.getElementById('totalInfo').textContent = `Total: ${data.pagination.total} files`;
+        
+        // Render table
+        if (data.files.length === 0) {
+          document.getElementById('filesTable').innerHTML = '<tr><td colspan="7" class="loading">No files found</td></tr>';
+        } else {
+          let html = '';
+          for (const f of data.files) {
+            html += `<tr>
+              <td title="${f.path}">${f.name}</td>
+              <td><span class="type-badge ${f.file_type}">${f.file_type}</span></td>
+              <td>${f.summary || '-'}</td>
+              <td><div class="entity-tags">${(f.keywords || '').split(',').filter(k=>k).map(k=>`<span class="entity-tag">${k.trim()}</span>`).join('') || '-'}</div></td>
+              <td>${f.time_entities || '-'}</td>
+              <td>${f.space_entities || '-'}</td>
+              <td>${f.person_entities || '-'}</td>
+            </tr>`;
+          }
+          document.getElementById('filesTable').innerHTML = html;
+        }
+        
+        // Update pagination
+        const totalPages = Math.ceil(data.pagination.total / limit);
+        document.getElementById('pageInfo').textContent = `Page ${currentPage} of ${totalPages}`;
+        document.getElementById('prevBtn').disabled = currentPage <= 1;
+        document.getElementById('nextBtn').disabled = currentPage >= totalPages;
+      } catch (e) {
+        document.getElementById('filesTable').innerHTML = '<tr><td colspan="7" class="loading">Failed to load data</td></tr>';
+      }
+    }
+
+    function changePage(delta) {
+      currentPage += delta;
+      loadFiles();
+    }
+
+    // Filter handler
+    document.getElementById('typeFilter').addEventListener('change', (e) => {
+      currentType = e.target.value;
+      currentPage = 1;
+      loadFiles();
+    });
+
+    // Initial load
+    loadStats();
+    loadFiles();
+  </script>
+</body>
+</html>
