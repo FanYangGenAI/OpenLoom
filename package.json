@@ -5,6 +5,9 @@
   "type": "module",
   "description": "Weaving your digital chaos into a life narrative",
   "packageManager": "pnpm@9.0.0",
+  "bin": {
+    "openloom": "./bin/openloom"
+  },
   "engines": {
     "node": ">=22.0.0"
   },
