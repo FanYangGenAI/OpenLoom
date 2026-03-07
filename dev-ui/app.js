@@ -222,10 +222,16 @@ cancelScanBtn.addEventListener('click', () => {
 });
 
 startScanBtn.addEventListener('click', () => {
-  const path = scanPath.value.trim();
+  let path = scanPath.value.trim();
+  
+  // Default to home directory if empty
   if (!path) {
-    alert('Please enter a path');
-    return;
+    path = '/Users/fanyang'; // Will be sent to server for proper expansion
+  }
+  
+  // Expand ~ to home directory on client side
+  if (path.startsWith('~')) {
+    path = '/Users/fanyang' + path.slice(1);
   }
 
   if (ws && ws.readyState === WebSocket.OPEN) {

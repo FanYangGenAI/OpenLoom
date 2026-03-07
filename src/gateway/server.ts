@@ -2,13 +2,18 @@ import http from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import { createServer as createStaticServer } from 'http';
 import { readFileSync, existsSync } from 'fs';
-import { join, extname } from 'path';
+import { join, extname, resolve, dirname } from 'path';
+import { fileURLToPath } from 'url';
 import { createScanner } from '../ingestion/scanner/scanner.js';
 import { openDatabase, closeDatabase } from '../knowledge/index/schema.js';
 import { createBatchWriter } from '../knowledge/index/writer.js';
 
+import { dirname, resolve } from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_PORT = 3000;
-const UI_DIR = join(import.meta.dirname || '.', '..', 'dev-ui');
+const UI_DIR = resolve(__dirname, '..', '..', 'dev-ui');
 
 // MIME types
 const MIME_TYPES = {
@@ -85,6 +90,18 @@ function handleWsMessage(ws: WebSocket, message: string, db: ReturnType<typeof o
  * Handle scan start
  */
 async function handleScanStart(ws: WebSocket, data: { path: string; personal?: boolean }, db: ReturnType<typeof openDatabase>): Promise<void> {
+  let path = data.path;
+  
+  // Expand ~ to home directory
+  if (path.startsWith('~')) {
+    path = process.env.HOME + path.slice(1);
+  }
+  
+  // Default to home if empty
+  if (!path || path === '') {
+    path = process.env.HOME || '/Users/fanyang';
+  }
+
   const scanId = `scan-${Date.now()}`;
   const scanner = createScanner();
   const batchWriter = createBatchWriter(db, scanId);
