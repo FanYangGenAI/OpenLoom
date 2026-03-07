@@ -5,3 +5,12 @@ tasks/
 
 # Rust build artifacts
 **/target/
+
+# Node.js
+node_modules/
+dist/
+*.log
+
+# Build outputs
+.env
+.env.local
