@@ -23,7 +23,7 @@ GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
 GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent'
 
 # 支持的文件类型
-DOC_EXTS = {'.docx', '.doc', '.txt', '.md'}
+DOC_EXTS = {'.docx', '.doc', '.txt', '.md', '.markdown', '.html', '.htm'}
 PDF_EXT = '.pdf'
 IMAGE_EXTS = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp'}
 
@@ -74,6 +74,182 @@ def read_text(file_path):
             return f.read()[:5000]
     except Exception as e:
         return f"[Error reading text: {e}]"
+
+def read_markdown(file_path):
+    """读取 Markdown 文件，解析 front matter"""
+    try:
+        import frontmatter
+        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            doc = frontmatter.load(f)
+        
+        # 提取 front matter 中的元数据
+        metadata = dict(doc.metadata) if doc.metadata else {}
+        
+        # 提取正文内容
+        content = str(doc.content)[:5000] if doc.content else ''
+        
+        # 将元数据添加到返回内容前面（供 LLM 使用）
+        if metadata:
+            meta_str = '\n'.join([f"{k}: {v}" for k, v in metadata.items()])
+            return f"---METADATA---\n{meta_str}\n---CONTENT---\n{content}"
+        return content
+    except Exception as e:
+        # 如果 front matter 解析失败，回退到普通文本读取
+        return read_text(file_path)
+
+def read_html(file_path):
+    """读取 HTML 文件，使用 BeautifulSoup 解析"""
+    try:
+        from bs4 import BeautifulSoup
+        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            html_content = f.read()
+        
+        soup = BeautifulSoup(html_content, 'html.parser')
+        
+        # 提取 meta 标签中的元数据
+        metadata = {}
+        for meta in soup.find_all('meta'):
+            name = meta.get('name') or meta.get('property', '')
+            content = meta.get('content', '')
+            if name and content:
+                metadata[name] = content
+        
+        # 提取标题
+        title = soup.title.string if soup.title else ''
+        if title:
+            metadata['title'] = title
+        
+        # 提取正文（移除 script 和 style）
+        for script in soup(['script', 'style']):
+            script.decompose()
+        
+        text = soup.get_text(separator='\n', strip=True)[:5000]
+        
+        # 将元数据添加到返回内容前面
+        if metadata:
+            meta_str = '\n'.join([f"{k}: {v}" for k, v in metadata.items()])
+            return f"---METADATA---\n{meta_str}\n---CONTENT---\n{text}"
+        return text
+    except Exception as e:
+        return f"[Error reading html: {e}]"
+
+
+# ============ Phase 2: 元数据提取函数 ============
+
+def extract_docx_metadata(file_path):
+    """提取 DOCX 文件的元数据"""
+    try:
+        from docx import Document
+        doc = Document(file_path)
+        
+        # 获取核心属性
+        core_props = doc.core_properties
+        
+        metadata = {
+            'creator': core_props.author or '',
+            'created_time': core_props.created.isoformat() if core_props.created else '',
+            'last_modified_by': core_props.last_modified_by or '',
+            'title': core_props.title or '',
+            'modified_time': core_props.modified.isoformat() if core_props.modified else ''
+        }
+        return metadata
+    except Exception as e:
+        return {'error': str(e)}
+
+
+def extract_pdf_metadata(file_path):
+    """提取 PDF 文件的元数据"""
+    try:
+        from pypdf import PdfReader
+        reader = PdfReader(file_path)
+        
+        metadata_obj = reader.metadata or {}
+        
+        metadata = {
+            'creator': metadata_obj.get('/Author', ''),
+            'created_time': metadata_obj.get('/CreationDate', ''),
+            'last_modified_by': metadata_obj.get('/Creator', ''),
+            'producer': metadata_obj.get('/Producer', ''),
+            'title': metadata_obj.get('/Title', '')
+        }
+        return metadata
+    except Exception as e:
+        return {'error': str(e)}
+
+
+def extract_markdown_metadata(file_path):
+    """提取 Markdown 文件的 front matter 元数据"""
+    try:
+        import frontmatter
+        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            doc = frontmatter.load(f)
+        
+        # 提取 front matter 中的元数据
+        metadata_dict = dict(doc.metadata) if doc.metadata else {}
+        
+        # 映射常见字段名
+        metadata = {
+            'creator': metadata_dict.get('author', metadata_dict.get('creator', '')),
+            'created_time': metadata_dict.get('date', metadata_dict.get('created', metadata_dict.get('created_time', ''))),
+            'title': metadata_dict.get('title', ''),
+            'last_modified_by': metadata_dict.get('last_modified_by', '')
+        }
+        
+        # 清理空值
+        metadata = {k: str(v) if v else '' for k, v in metadata.items()}
+        return metadata
+    except Exception as e:
+        return {'error': str(e)}
+
+
+def extract_html_metadata(file_path):
+    """提取 HTML 文件的 meta 标签元数据"""
+    try:
+        from bs4 import BeautifulSoup
+        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            html_content = f.read()
+        
+        soup = BeautifulSoup(html_content, 'html.parser')
+        
+        metadata = {
+            'creator': '',
+            'created_time': '',
+            'title': ''
+        }
+        
+        # 提取 meta 标签中的元数据
+        for meta in soup.find_all('meta'):
+            name = meta.get('name') or meta.get('property', '')
+            content = meta.get('content', '')
+            
+            if name in ['author', 'creator']:
+                metadata['creator'] = content
+            elif name in ['date', 'publish-date', 'article:published_time']:
+                metadata['created_time'] = content
+            elif name == 'description':
+                metadata['description'] = content
+            elif name in ['og:title', 'twitter:title']:
+                metadata['title'] = content
+        
+        return metadata
+    except Exception as e:
+        return {'error': str(e)}
+
+
+def extract_file_metadata(file_path):
+    """提取文件元数据（根据文件类型）"""
+    ext = os.path.splitext(file_path)[1].lower()
+    
+    if ext == '.docx':
+        return extract_docx_metadata(file_path)
+    elif ext == '.pdf':
+        return extract_pdf_metadata(file_path)
+    elif ext in {'.md', '.markdown'}:
+        return extract_markdown_metadata(file_path)
+    elif ext in {'.html', '.htm'}:
+        return extract_html_metadata(file_path)
+    else:
+        return {}
 
 def get_file_metadata(file_path):
     """获取文件元数据"""
@@ -188,10 +364,18 @@ def extract_document_info(file_path, file_name, file_type):
     """使用 LLM 提取文档信息"""
     print(f"Processing document: {file_name}")
     
+    # Phase 2: 1. 提取文档内部元数据（更准确）
+    doc_metadata = extract_file_metadata(file_path)
+    print(f"  -> Document metadata: creator={doc_metadata.get('creator', 'N/A')[:20]}, created={doc_metadata.get('created_time', 'N/A')[:20]}")
+    
     # 读取内容
     ext = os.path.splitext(file_path)[1].lower()
-    if ext in DOC_EXTS:
-        content = read_docx(file_path) if ext == '.docx' else read_text(file_path)
+    if ext == '.docx':
+        content = read_docx(file_path)
+    elif ext in {'.md', '.markdown'}:
+        content = read_markdown(file_path)
+    elif ext in {'.html', '.htm'}:
+        content = read_html(file_path)
     elif ext == '.pdf':
         content = read_pdf(file_path)
     else:
@@ -201,10 +385,16 @@ def extract_document_info(file_path, file_name, file_type):
         print(f"  -> Failed to read content: {content}")
         return None
     
-    # 获取元数据
-    metadata = get_file_metadata(file_path)
+    # Phase 2: 2. 获取文件系统元数据（作为备用）
+    fs_metadata = get_file_metadata(file_path)
+    print(f"  -> Filesystem metadata: created={fs_metadata.get('created_time', 'N/A')[:20]}")
     
-    # 构建 prompt
+    # Phase 2: 3. 合并：优先使用文档内部元数据
+    created_time = doc_metadata.get('created_time') or fs_metadata.get('created_time')
+    creator = doc_metadata.get('creator') or fs_metadata.get('creator')
+    print(f"  -> Merged metadata: creator={creator[:20] if creator else 'N/A'}, created={created_time[:20] if created_time else 'N/A'}")
+    
+    # 构建 prompt - Phase 2: 增加 creation_location
     prompt = f"""你是一个文档分析专家。请分析以下文档，提取关键信息。
 
 文件名: {file_name}
@@ -221,7 +411,8 @@ def extract_document_info(file_path, file_name, file_type):
   "space_entities": "涉及的地点（城市、国家等），没有则为空",
   "person_entities": "涉及的人物（姓名），没有则为空",
   "author": "文档作者（如果有）",
-  "created_date": "文档创建日期（如果有）"
+  "created_date": "文档创建日期（如果有）",
+  "creation_location": "文档可能创建/编辑的地点（如 office, home, university, city 等），从内容中推断，如果没有则为空字符串"
 }}
 
 只返回JSON，不要其他内容。"""
@@ -239,11 +430,20 @@ def extract_document_info(file_path, file_name, file_type):
             
             info = json.loads(result.strip())
             
-            # 添加元数据
-            info['metadata'] = metadata
+            # Phase 2: 合并文件元数据和 LLM 提取的信息
+            # 使用优先合并后的元数据
+            info['metadata'] = fs_metadata
+            info['file_metadata'] = doc_metadata  # 保留原始文档内部元数据
             info['content_preview'] = content[:500]
             
+            # 填充数据库新字段（使用已合并的 created_time 和 creator）
+            if not info.get('created_time') and created_time:
+                info['created_time'] = created_time
+            if not info.get('creator') and creator:
+                info['creator'] = creator
+            
             print(f"  -> Extracted: {info.get('summary', 'N/A')[:50]}")
+            print(f"  -> Creation location: {info.get('creation_location', 'N/A')[:30]}")
             return info
         except json.JSONDecodeError as e:
             print(f"  -> JSON parse error: {e}")
@@ -304,6 +504,7 @@ def update_database(file_info, llm_result):
     cursor = conn.cursor()
     
     try:
+        # Phase 2: 更新所有字段，包括新增的元数据字段
         cursor.execute("""
             UPDATE extractions 
             SET summary = ?,
@@ -311,7 +512,10 @@ def update_database(file_info, llm_result):
                 time_entities = ?,
                 space_entities = ?,
                 person_entities = ?,
-                raw_llm_response = ?
+                raw_llm_response = ?,
+                created_time = ?,
+                creator = ?,
+                creation_location = ?
             WHERE file_path = ?
         """, (
             llm_result.get('summary', ''),
@@ -320,7 +524,10 @@ def update_database(file_info, llm_result):
             llm_result.get('space_entities', ''),
             llm_result.get('person_entities', ''),
             json.dumps(llm_result),
-            file_info['path']
+            llm_result.get('created_time', ''),  # 从文件元数据提取
+            llm_result.get('creator', ''),        # 从文件元数据提取 或 LLM推断
+            llm_result.get('creation_location', ''),  # LLM 从内容推断
+            file_info['file_path']  # 使用 file_path 字段
         ))
         
         conn.commit()
