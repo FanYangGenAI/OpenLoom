@@ -1,0 +1,8 @@
+#!/bin/sh
+# OpenLoom CLI Entry Point
+
+# Get the directory where the script is located
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# Run with Node.js and tsx
+exec node --import tsx "$SCRIPT_DIR/src/cli/index.ts" "$@"

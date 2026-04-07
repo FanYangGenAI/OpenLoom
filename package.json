@@ -1,0 +1,39 @@
+{
+  "name": "openloom",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Weaving your digital chaos into a life narrative",
+  "packageManager": "pnpm@9.0.0",
+  "bin": {
+    "openloom": "./bin/openloom"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "dev": "node --import tsx src/cli/index.ts",
+    "build": "tsup",
+    "test": "vitest",
+    "lint": "eslint src --ext .ts",
+    "scan": "node --import tsx src/cli/index.ts scan",
+    "serve": "node --import tsx src/gateway/server.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "eslint": "^9.0.0",
+    "prettier": "^3.0.0",
+    "tsup": "^8.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0",
+    "vitest": "^2.0.0"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.0.0",
+    "chokidar": "^4.0.0",
+    "commander": "^12.0.0",
+    "readline": "^1.3.0",
+    "ws": "^8.0.0",
+    "yaml": "^2.0.0"
+  }
+}
