@@ -29,7 +29,9 @@
     "vitest": "^2.0.0"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
     "@google/generative-ai": "^0.24.0",
+    "adm-zip": "^0.5.16",
     "better-sqlite3": "^11.0.0",
     "chokidar": "^4.0.0",
     "commander": "^12.0.0",
