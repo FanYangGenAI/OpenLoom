@@ -3,6 +3,7 @@ import { Command } from 'commander';
 import { scanCommand } from './commands/scan.js';
 import { statusCommand } from './commands/status.js';
 import { serveCommand } from './commands/serve.js';
+import { extractCommand } from './commands/extract.js';
 
 const program = new Command();
 
@@ -17,6 +18,18 @@ program
   .option('-p, --personal', 'Personal mode: exclude common ignore patterns')
   .option('-o, --output <file>', 'Output file (default: stdout)')
   .action(scanCommand);
+
+program
+  .command('extract <path>')
+  .description('Extract metadata from a file or all supported files in a directory')
+  .option('--openloom <dir>',        'Path to .openloom data directory (default: ./.openloom)')
+  .option('-f, --force',             'Re-extract even if metadata already exists (skip hash-cache)')
+  .option('--ocr-provider <mode>',   'OCR provider: online (DeepSeek API) | local (Ollama)', 'online')
+  .option('--skip-faces',            'Disable face detection (use if TF native bindings not installed)')
+  .option('--text-concurrency <n>',  'Max parallel TextDocAgent workers', '5')
+  .option('--image-concurrency <n>', 'Max parallel ImageAgent workers', '3')
+  .option('--json',                  'Output results as JSON')
+  .action(extractCommand);
 
 program
   .command('status')
