@@ -1,7 +1,10 @@
 import { stat } from 'fs/promises';
 import { resolve, basename } from 'path';
-import { join } from 'path';
+import { createInterface } from 'readline/promises';
+import { stdin as input, stdout as output } from 'process';
 import { extractFile, extractDirectory, type ProgressUpdate } from '../../ingestion/extractors/index.js';
+import { getDefaultRoot, isInitialized, resolveOpenloomDir } from '../../config/user-settings.js';
+import { setupCommand } from './setup.js';
 
 interface ExtractCommandOptions {
   openloom?: string;
@@ -10,23 +13,39 @@ interface ExtractCommandOptions {
   skipFaces?: boolean;
   textConcurrency?: string;
   imageConcurrency?: string;
+  interactive?: boolean;
   json?: boolean;
 }
 
 export async function extractCommand(
-  targetPath: string,
+  targetPath: string | undefined,
   opts: ExtractCommandOptions,
 ): Promise<void> {
-  const resolved = resolve(targetPath);
-  const openloomDir = opts.openloom ?? join(process.cwd(), '.openloom');
+  const openloomDir = resolveOpenloomDir(opts.openloom);
+  await ensureInitializedOrSetup(openloomDir, opts.openloom);
+
+  const resolvedTargetPath = await resolveTargetPath(targetPath, openloomDir);
+  const resolved = resolve(resolvedTargetPath);
+  const interactiveOverrides = opts.interactive
+    ? await runInteractiveExtractPrompt({
+        ocrProvider: (opts.ocrProvider as 'online' | 'local') ?? 'online',
+        skipFaceDetection: opts.skipFaces ?? false,
+        textConcurrency: opts.textConcurrency ? parseInt(opts.textConcurrency, 10) : 5,
+        imageConcurrency: opts.imageConcurrency ? parseInt(opts.imageConcurrency, 10) : 3,
+      })
+    : null;
 
   const options = {
     openloomDir,
-    forceReextract:   opts.force ?? false,
-    ocrProvider:      (opts.ocrProvider as 'online' | 'local') ?? 'online',
-    skipFaceDetection: opts.skipFaces ?? false,
-    textConcurrency:  opts.textConcurrency  ? parseInt(opts.textConcurrency, 10)  : undefined,
-    imageConcurrency: opts.imageConcurrency ? parseInt(opts.imageConcurrency, 10) : undefined,
+    forceReextract: opts.force ?? false,
+    ocrProvider: interactiveOverrides?.ocrProvider ?? (opts.ocrProvider as 'online' | 'local') ?? 'online',
+    skipFaceDetection: interactiveOverrides?.skipFaceDetection ?? (opts.skipFaces ?? false),
+    textConcurrency:
+      interactiveOverrides?.textConcurrency ??
+      (opts.textConcurrency ? parseInt(opts.textConcurrency, 10) : undefined),
+    imageConcurrency:
+      interactiveOverrides?.imageConcurrency ??
+      (opts.imageConcurrency ? parseInt(opts.imageConcurrency, 10) : undefined),
   };
 
   let info: Awaited<ReturnType<typeof stat>>;
@@ -84,6 +103,77 @@ export async function extractCommand(
   }
 
   if (result.failed.length > 0) process.exit(1);
+}
+
+async function ensureInitializedOrSetup(openloomDir: string, openloomOverride?: string): Promise<void> {
+  if (await isInitialized(openloomDir)) return;
+
+  console.log('OpenLoom is not initialized yet. Starting setup...');
+  await setupCommand({ openloom: openloomOverride });
+}
+
+async function resolveTargetPath(targetPath: string | undefined, openloomDir: string): Promise<string> {
+  if (targetPath?.trim()) return targetPath;
+
+  const root = await getDefaultRoot(openloomDir);
+  if (root?.path) return root.path;
+
+  console.error('Error: no extract path provided and no default root configured.');
+  console.error('Use "openloom setup" or "openloom roots set <path>" first, or pass a path.');
+  process.exit(1);
+}
+
+interface InteractivePromptOptions {
+  ocrProvider: 'online' | 'local';
+  skipFaceDetection: boolean;
+  textConcurrency: number;
+  imageConcurrency: number;
+}
+
+async function runInteractiveExtractPrompt(
+  defaults: InteractivePromptOptions,
+): Promise<InteractivePromptOptions> {
+  const rl = createInterface({ input, output });
+  try {
+    console.log('\nInteractive extract mode');
+    console.log('Press Enter to keep defaults.\n');
+
+    const ocrAnswer = (await rl.question(
+      `OCR provider [online/local] (default: ${defaults.ocrProvider}): `,
+    )).trim();
+    const ocrProvider = ocrAnswer === 'online' || ocrAnswer === 'local' ? ocrAnswer : defaults.ocrProvider;
+
+    const skipFacesAnswer = (await rl.question(
+      `Skip face detection [y/N] (default: ${defaults.skipFaceDetection ? 'y' : 'n'}): `,
+    )).trim().toLowerCase();
+    const skipFaceDetection =
+      skipFacesAnswer === ''
+        ? defaults.skipFaceDetection
+        : skipFacesAnswer === 'y' || skipFacesAnswer === 'yes' || skipFacesAnswer === 'true';
+
+    const textConcurrencyAnswer = (await rl.question(
+      `Text concurrency (default: ${defaults.textConcurrency}): `,
+    )).trim();
+    const textConcurrency =
+      textConcurrencyAnswer.length > 0 ? Math.max(1, parseInt(textConcurrencyAnswer, 10) || defaults.textConcurrency) : defaults.textConcurrency;
+
+    const imageConcurrencyAnswer = (await rl.question(
+      `Image concurrency (default: ${defaults.imageConcurrency}): `,
+    )).trim();
+    const imageConcurrency =
+      imageConcurrencyAnswer.length > 0
+        ? Math.max(1, parseInt(imageConcurrencyAnswer, 10) || defaults.imageConcurrency)
+        : defaults.imageConcurrency;
+
+    return {
+      ocrProvider,
+      skipFaceDetection,
+      textConcurrency,
+      imageConcurrency,
+    };
+  } finally {
+    rl.close();
+  }
 }
 
 // ─── Output helpers ───────────────────────────────────────────────────────────

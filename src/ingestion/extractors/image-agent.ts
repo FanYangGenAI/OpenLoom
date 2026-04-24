@@ -9,6 +9,7 @@ import { detectFaces } from './face-detector.js';
 import { refreshMetadataIfLocationChanged } from './location-refresh.js';
 import { persistMetadata } from './persist.js';
 import type { FileMetadata, GeoPoint } from './types.js';
+import { resolveOpenloomDir } from '../../config/user-settings.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -51,7 +52,7 @@ export async function runImageAgent(
   filePath: string,
   options: ImageAgentOptions = {},
 ): Promise<FileMetadata> {
-  const openloomDir = options.openloomDir ?? join(process.cwd(), '.openloom');
+  const openloomDir = resolveOpenloomDir(options.openloomDir);
   const ocrProvider = options.ocrProvider ?? 'online';
   const errors: string[] = [];
 
