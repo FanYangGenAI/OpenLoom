@@ -3,6 +3,7 @@
 openclaw/
 doc/
 tasks/
+data/
 
 # Rust build artifacts
 **/target/
