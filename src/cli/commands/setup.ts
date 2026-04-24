@@ -1,6 +1,4 @@
-import { stdin as input, stdout as output } from 'process';
 import { resolve } from 'path';
-import { createInterface } from 'readline/promises';
 import {
   loadSettings,
   markInitialized,
@@ -9,20 +7,22 @@ import {
   setDefaultRoot,
 } from '../../config/user-settings.js';
 import { upsertLessonsSections } from '../../config/lessons-memory.js';
+import { createCliWizardPrompter } from '../../wizard/prompts.js';
+import { runOnboardingWizard } from '../../wizard/onboarding.js';
+import { WizardSession } from '../../wizard/session.js';
+import {
+  isOnboardingCompleted,
+  updateWorkspaceState,
+} from '../../config/workspace-state.js';
+import {
+  ensureAgentBootstrapFiles,
+  updateBootstrapMemoryFiles,
+} from '../../config/agent-memory/bootstrap-files.js';
 
 interface SetupOptions {
   openloom?: string;
   root?: string;
   nonInteractive?: boolean;
-}
-
-async function promptWithSkip(
-  rl: ReturnType<typeof createInterface>,
-  question: string,
-): Promise<string | undefined> {
-  const answer = (await rl.question(`${question} (type "skip" to skip): `)).trim();
-  if (!answer || answer.toLowerCase() === 'skip') return undefined;
-  return answer;
 }
 
 function printEnvironmentChecks(): void {
@@ -36,50 +36,54 @@ function printEnvironmentChecks(): void {
 export async function setupCommand(options: SetupOptions): Promise<void> {
   const openloomDir = resolveOpenloomDir(options.openloom);
   const settings = await loadSettings(openloomDir);
-  const rl = createInterface({ input, output });
+  const alreadyOnboarded = await isOnboardingCompleted(openloomDir);
+  const prompter = createCliWizardPrompter({ nonInteractive: options.nonInteractive });
 
-  console.log('OpenLoom Setup');
-  console.log('=============');
-  console.log(`OpenLoom directory: ${openloomDir}`);
+  await ensureAgentBootstrapFiles(openloomDir);
+  await updateWorkspaceState(openloomDir, {
+    lastWizardRunAt: new Date().toISOString(),
+    lastWizardSource: 'setup',
+  });
 
   try {
-    const preferredUserName = options.nonInteractive
-      ? undefined
-      : await promptWithSkip(rl, 'How should the agent address you');
-    const preferredAgentName = options.nonInteractive
-      ? undefined
-      : await promptWithSkip(rl, 'How would you like to address the agent');
-    const tone = options.nonInteractive
-      ? undefined
-      : await promptWithSkip(rl, 'Preferred conversation style (e.g. concise/friendly/professional)');
-    const formatPreference = options.nonInteractive
-      ? undefined
-      : await promptWithSkip(rl, 'Preferred output format (e.g. summary-first/detailed)');
-    const languagePreference = options.nonInteractive
-      ? undefined
-      : await promptWithSkip(rl, 'Preferred language');
+    const session = new WizardSession(async (wizard) => {
+      const onboarding = await runOnboardingWizard(wizard, {
+        initialRoot: options.root,
+      });
 
-    await upsertLessonsSections(
-      openloomDir,
-      {
-        preferredUserName,
-        preferredAgentName,
-        tone,
-        languagePreference,
-        formatPreference,
-      },
-      settings.initialized ? 'refresh onboarding preferences' : 'initial onboarding capture',
-    );
+      await upsertLessonsSections(
+        openloomDir,
+        {
+          preferredUserName: onboarding.preferredUserName,
+          preferredAgentName: onboarding.preferredAgentName,
+          tone: onboarding.tone,
+          languagePreference: onboarding.languagePreference,
+          formatPreference: onboarding.formatPreference,
+        },
+        settings.initialized || alreadyOnboarded
+          ? 'refresh onboarding preferences'
+          : 'initial onboarding capture',
+      );
 
-    printEnvironmentChecks();
+      await updateBootstrapMemoryFiles(openloomDir, {
+        preferredUserName: onboarding.preferredUserName,
+        preferredAgentName: onboarding.preferredAgentName,
+        tone: onboarding.tone,
+        languagePreference: onboarding.languagePreference,
+        formatPreference: onboarding.formatPreference,
+      });
 
-    let rootPath = options.root?.trim();
-    if (!rootPath && !options.nonInteractive) {
-      rootPath = await promptWithSkip(rl, 'Default user data root directory path');
-    }
+      printEnvironmentChecks();
 
-    if (rootPath?.trim()) {
-      await setDefaultRoot(openloomDir, resolve(rootPath));
+      const rootPath = onboarding.defaultRoot?.trim() || options.root?.trim();
+      if (rootPath) {
+        await setDefaultRoot(openloomDir, resolve(rootPath));
+      }
+    }, prompter);
+
+    const result = await session.run();
+    if (result.status !== 'done') {
+      throw new Error(result.error ?? 'setup wizard failed');
     }
 
     const latest = await loadSettings(openloomDir);
@@ -88,11 +92,15 @@ export async function setupCommand(options: SetupOptions): Promise<void> {
       openloom_dir: openloomDir,
     });
     await markInitialized(openloomDir);
+    await updateWorkspaceState(openloomDir, {
+      onboardingCompletedAt: new Date().toISOString(),
+    });
 
     console.log('\nSetup completed.');
     console.log(`- Settings saved: ${openloomDir}/config/user-settings.json`);
+    console.log(`- Workspace state saved: ${openloomDir}/agent/workspace-state.json`);
     console.log(`- Lessons saved: ${openloomDir}/agent/lessons.md`);
   } finally {
-    rl.close();
+    prompter.close();
   }
 }

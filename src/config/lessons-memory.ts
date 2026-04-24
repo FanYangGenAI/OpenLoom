@@ -1,5 +1,6 @@
-import { mkdir, readFile, writeFile } from 'fs/promises';
+import { mkdir, readFile, rename, unlink, writeFile } from 'fs/promises';
 import { dirname, resolve } from 'path';
+import { mergeLessons, renderLessons } from './agent-memory/lessons-merge.js';
 
 export interface LessonsInput {
   preferredUserName?: string;
@@ -58,8 +59,12 @@ export async function upsertLessonsSections(
 ): Promise<void> {
   const lessonsPath = getLessonsPath(openloomDir);
   await mkdir(dirname(lessonsPath), { recursive: true });
-  const content = buildLessonsContent(input, updateReason);
-  await writeFile(lessonsPath, content, 'utf8');
+  const existing = await readLessons(openloomDir);
+  const content =
+    existing.trim().length > 0
+      ? renderLessons(mergeLessons(existing, input, updateReason))
+      : buildLessonsContent(input, updateReason);
+  await atomicWrite(lessonsPath, content);
 }
 
 export async function appendUpdateLog(openloomDir: string, message: string): Promise<void> {
@@ -68,5 +73,16 @@ export async function appendUpdateLog(openloomDir: string, message: string): Pro
   const current = await readLessons(openloomDir);
   const base = current.trim().length > 0 ? current.trimEnd() : buildLessonsContent({}, 'initialize lessons');
   const next = `${base}\n- ${new Date().toISOString()}: ${message}\n`;
-  await writeFile(lessonsPath, next, 'utf8');
+  await atomicWrite(lessonsPath, next);
+}
+
+async function atomicWrite(path: string, content: string): Promise<void> {
+  const tmp = `${path}.tmp-${process.pid}-${Date.now().toString(36)}`;
+  await writeFile(tmp, content, 'utf8');
+  try {
+    await rename(tmp, path);
+  } catch (error) {
+    await unlink(tmp).catch(() => {});
+    throw error;
+  }
 }

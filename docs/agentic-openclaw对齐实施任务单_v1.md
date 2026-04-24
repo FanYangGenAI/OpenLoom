@@ -266,3 +266,132 @@
 - onboarding 是否具备可恢复、可重入特性？
 - 是否保留非交互路径，避免影响自动化？
 - 是否每个里程碑都能独立回滚？
+
+---
+
+## 6. P0 文件级实施拆解（可直接开工）
+
+说明：
+
+- 工时单位为“人时（h）”，按 1 名熟悉代码库工程师估算。
+- `前置依赖` 中出现的任务必须先完成，才能开始当前任务。
+- `可并行` 标记仅表示技术上可并发，不代表推荐立即并发。
+
+| 任务ID | 文件级改动清单 | 前置依赖 | 预估工时 | 可并行 | 交付物 |
+|---|---|---|---:|---|---|
+| T1 | `src/wizard/prompts.ts`、`src/wizard/session.ts`、`src/wizard/onboarding.ts`、`src/cli/commands/setup.ts` | 无 | 8h | 否 | Wizard 抽象 + setup 接管 |
+| T2 | `src/config/workspace-state.ts`、`src/cli/commands/setup.ts`、`src/cli/commands/extract.ts` | T1 | 4h | 否 | onboarding 状态判定与推进 |
+| T3 | `src/config/agent-memory/bootstrap-templates.ts`、`src/config/agent-memory/bootstrap-files.ts`、`src/cli/commands/setup.ts` | T2 | 6h | 否 | bootstrap 文件 seed 与首次写入 |
+| T4 | `src/config/agent-memory/lessons-parser.ts`、`src/config/agent-memory/lessons-merge.ts`、`src/config/lessons-memory.ts` | T3 | 7h | 否 | lessons 非覆盖 merge V2 |
+| T5 | `src/cli/commands/extract.ts`、`src/wizard/extract-interactive.ts`、`src/config/user-settings.ts` | T2 | 5h | 是（与 T4 末段可并行） | interactive extract 自动 onboarding |
+| T6 | `src/wizard/*.test.ts`、`src/config/*.test.ts`、`src/e2e/integration.test.ts`、`docs/冷启动交互验收清单.md` | T4、T5 | 8h | 否 | 自动化与手动验收闭环 |
+
+P0 总工时估算：`38h`（约 `5` 个工作日，预留 20% 风险缓冲后约 `6` 个工作日）。
+
+### 6.1 任务实施细化
+
+#### T1: Wizard 抽象并接管 setup
+
+实施步骤：
+
+1. 在 `src/wizard/prompts.ts` 定义统一交互接口类型。
+2. 在 `src/wizard/session.ts` 实现 `next/answer/cancel` 生命周期。
+3. 在 `src/wizard/onboarding.ts` 编排首轮 onboarding 问答。
+4. 将 `src/cli/commands/setup.ts` 的 readline 逻辑迁移为 wizard 调用。
+
+完成定义（DoD）：
+
+- setup 不再直接依赖命令层散装问答函数。
+- wizard 支持后续复用到 `extract --interactive`。
+
+#### T2: 引入 workspace-state 完成判定
+
+实施步骤：
+
+1. 新建 `src/config/workspace-state.ts`（读写 + 默认值 + 原子写）。
+2. 在 setup 成功后写入 `onboardingCompletedAt`。
+3. 在 extract 入口先读取状态，未完成则跳转 onboarding。
+
+完成定义（DoD）：
+
+- onboarding 完成判定不再依赖临时变量或日志输出。
+
+#### T3: bootstrap 文件体系 seed
+
+实施步骤：
+
+1. 新建模板常量模块 `bootstrap-templates.ts`。
+2. 新建 seed 模块 `bootstrap-files.ts`，实现 `write-if-missing`。
+3. setup 中在 onboarding 前调用 `ensureAgentBootstrapFiles()`。
+4. 首轮结果同步回写 `IDENTITY/USER/SOUL/lessons`。
+
+完成定义（DoD）：
+
+- 首次 setup 后，`BOOTSTRAP/IDENTITY/USER/SOUL/lessons` 全部存在。
+
+#### T4: lessons 非覆盖合并
+
+实施步骤：
+
+1. 解析器：把 `lessons.md` 转换成结构化对象。
+2. 合并器：实现字段优先级与 `UpdateLog` 追加策略。
+3. 在 `lessons-memory.ts` 替换当前整文件覆盖写入。
+4. 增加失败回退（备份 + 重建 + 恢复日志）。
+
+完成定义（DoD）：
+
+- `skip/empty` 不会覆盖已有值。
+- 手工编辑内容在可识别分节内可保留。
+
+#### T5: extract --interactive 自动 onboarding
+
+实施步骤：
+
+1. 在 `src/cli/commands/extract.ts` 统一调用 `ensureInitializedOrSetup()`（基于 workspace-state）。
+2. 新建 `src/wizard/extract-interactive.ts` 承载提取问答逻辑。
+3. 让 interactive 分支只消费 wizard 输出，不直接维护问答细节。
+
+完成定义（DoD）：
+
+- 未 onboarding 用户运行 interactive extract 时可自动进入 setup 并返回继续执行。
+
+#### T6: 测试与验收闭环
+
+实施步骤：
+
+1. 为 wizard/session 增加生命周期测试。
+2. 为 workspace-state、bootstrap seed、lessons merge 增加单测。
+3. 扩展集成测试覆盖首次 setup、重复 setup、extract 自动 onboarding。
+4. 更新手动验收清单并至少完成一次 Windows 本地走查。
+
+完成定义（DoD）：
+
+- P0 相关测试可稳定通过。
+- 手动验收项有明确结果记录（通过/失败/阻塞）。
+
+### 6.2 串并行执行图
+
+```mermaid
+flowchart LR
+  T1[Wizard Core T1] --> T2[Workspace State T2]
+  T2 --> T3[Bootstrap Seed T3]
+  T3 --> T4[Lessons Merge T4]
+  T2 --> T5[Interactive Extract T5]
+  T4 --> T6[Tests and Validation T6]
+  T5 --> T6
+```
+
+### 6.3 PR 切分建议（P0 版本）
+
+- PR1（基础架构）：
+  - T1 + T2
+- PR2（记忆体系）：
+  - T3 + T4
+- PR3（提取接入与验证）：
+  - T5 + T6
+
+每个 PR 均需包含：
+
+- 改动说明
+- 验收截图/日志
+- 回滚说明
