@@ -7,13 +7,20 @@ import { fileURLToPath } from 'url';
 import { createScanner } from '../ingestion/scanner/scanner.js';
 import { openDatabase, closeDatabase } from '../knowledge/index/schema.js';
 import { createBatchWriter } from '../knowledge/index/writer.js';
-
-import { dirname, resolve } from 'path';
-import { fileURLToPath } from 'url';
+import { WizardSession } from '../wizard/session.js';
+import { runOnboardingWizard } from '../wizard/onboarding.js';
+import { resolveOpenloomDir } from '../config/user-settings.js';
+import { ensureAgentBootstrapFiles, updateBootstrapMemoryFiles } from '../config/agent-memory/bootstrap-files.js';
+import { upsertLessonsSections } from '../config/lessons-memory.js';
+import { updateWorkspaceState } from '../config/workspace-state.js';
+import { markInitialized, setDefaultRoot } from '../config/user-settings.js';
+import { getScanRules } from '../config/user-settings.js';
+import { mergeScanRules, shouldIncludePath } from '../ingestion/filtering/rules.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_PORT = 3000;
 const UI_DIR = resolve(__dirname, '..', '..', 'dev-ui');
+const wizardSessions = new Map<string, WizardSession>();
 
 // MIME types
 const MIME_TYPES = {
@@ -75,6 +82,18 @@ function handleWsMessage(ws: WebSocket, message: string, db: ReturnType<typeof o
       case 'scan.start':
         handleScanStart(ws, data, db);
         break;
+      case 'wizard.start':
+        handleWizardStart(ws, data);
+        break;
+      case 'wizard.next':
+        handleWizardNext(ws, data);
+        break;
+      case 'wizard.answer':
+        handleWizardAnswer(ws, data);
+        break;
+      case 'wizard.cancel':
+        handleWizardCancel(ws, data);
+        break;
       case 'chat.message':
         handleChatMessage(ws, data);
         break;
@@ -86,10 +105,152 @@ function handleWsMessage(ws: WebSocket, message: string, db: ReturnType<typeof o
   }
 }
 
+function emitWizardStep(
+  ws: WebSocket,
+  wizardId: string,
+  payload: { done: boolean; status: string; step?: unknown; error?: string },
+): void {
+  ws.send(
+    JSON.stringify({
+      type: 'wizard.step',
+      data: {
+        wizardId,
+        ...payload,
+      },
+    }),
+  );
+}
+
+async function runGatewayOnboarding(
+  openloomDir: string,
+  prompter: Parameters<typeof runOnboardingWizard>[0],
+): Promise<void> {
+  await ensureAgentBootstrapFiles(openloomDir);
+  await updateWorkspaceState(openloomDir, {
+    lastWizardRunAt: new Date().toISOString(),
+    lastWizardSource: 'manual',
+  });
+
+  const result = await runOnboardingWizard(prompter, {});
+
+  await upsertLessonsSections(
+    openloomDir,
+    {
+      preferredUserName: result.preferredUserName,
+      preferredAgentName: result.preferredAgentName,
+      tone: result.tone,
+      languagePreference: result.languagePreference,
+      formatPreference: result.formatPreference,
+    },
+    'gateway onboarding capture',
+  );
+  await updateBootstrapMemoryFiles(openloomDir, {
+    preferredUserName: result.preferredUserName,
+    preferredAgentName: result.preferredAgentName,
+    tone: result.tone,
+    languagePreference: result.languagePreference,
+    formatPreference: result.formatPreference,
+  });
+  if (result.defaultRoot?.trim()) {
+    await setDefaultRoot(openloomDir, result.defaultRoot.trim());
+  }
+  await markInitialized(openloomDir);
+  await updateWorkspaceState(openloomDir, {
+    onboardingCompletedAt: new Date().toISOString(),
+  });
+}
+
+function handleWizardStart(
+  ws: WebSocket,
+  data: { wizardType?: 'onboarding'; openloomDir?: string },
+): void {
+  const wizardType = data?.wizardType ?? 'onboarding';
+  if (wizardType !== 'onboarding') {
+    ws.send(
+      JSON.stringify({
+        type: 'wizard.error',
+        data: { error: `Unsupported wizard type: ${wizardType}` },
+      }),
+    );
+    return;
+  }
+
+  const openloomDir = resolveOpenloomDir(data?.openloomDir);
+  const wizardId = `wizard-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+
+  const wizard = new WizardSession(async (prompter) => {
+    await runGatewayOnboarding(openloomDir, prompter);
+  });
+  wizardSessions.set(wizardId, wizard);
+
+  void wizard.run().finally(() => {
+    wizardSessions.delete(wizardId);
+  });
+
+  ws.send(
+    JSON.stringify({
+      type: 'wizard.started',
+      data: { wizardId, wizardType, openloomDir },
+    }),
+  );
+}
+
+async function handleWizardNext(ws: WebSocket, data: { wizardId: string }): Promise<void> {
+  const wizard = wizardSessions.get(data?.wizardId);
+  if (!wizard) {
+    ws.send(JSON.stringify({ type: 'wizard.error', data: { error: 'Wizard session not found' } }));
+    return;
+  }
+  const next = await wizard.next();
+  emitWizardStep(ws, data.wizardId, {
+    done: next.done,
+    status: next.status,
+    step: next.step,
+    error: next.error,
+  });
+}
+
+function handleWizardAnswer(
+  ws: WebSocket,
+  data: { wizardId: string; stepId: string; value: unknown },
+): void {
+  const wizard = wizardSessions.get(data?.wizardId);
+  if (!wizard) {
+    ws.send(JSON.stringify({ type: 'wizard.error', data: { error: 'Wizard session not found' } }));
+    return;
+  }
+  try {
+    wizard.answer(data.stepId, data.value);
+    ws.send(JSON.stringify({ type: 'wizard.ack', data: { wizardId: data.wizardId, stepId: data.stepId } }));
+  } catch (error) {
+    ws.send(
+      JSON.stringify({
+        type: 'wizard.error',
+        data: { error: error instanceof Error ? error.message : String(error) },
+      }),
+    );
+  }
+}
+
+function handleWizardCancel(ws: WebSocket, data: { wizardId: string }): void {
+  const wizard = wizardSessions.get(data?.wizardId);
+  if (!wizard) {
+    ws.send(JSON.stringify({ type: 'wizard.error', data: { error: 'Wizard session not found' } }));
+    return;
+  }
+  wizard.cancel('cancelled by client');
+  wizardSessions.delete(data.wizardId);
+  ws.send(JSON.stringify({ type: 'wizard.cancelled', data: { wizardId: data.wizardId } }));
+}
+
 /**
  * Handle scan start
  */
-async function handleScanStart(ws: WebSocket, data: { path: string; personal?: boolean }, db: ReturnType<typeof openDatabase>): Promise<void> {
+async function handleScanStart(
+  ws: WebSocket,
+  data: { path: string; personal?: boolean; include?: string[]; exclude?: string[]; openloomDir?: string },
+  db: ReturnType<typeof openDatabase>,
+): Promise<void> {
   let path = data.path;
   
   // Expand ~ to home directory
@@ -105,6 +266,12 @@ async function handleScanStart(ws: WebSocket, data: { path: string; personal?: b
   const scanId = `scan-${Date.now()}`;
   const scanner = createScanner();
   const batchWriter = createBatchWriter(db, scanId);
+  const openloomDir = resolveOpenloomDir(data.openloomDir);
+  const configuredRules = await getScanRules(openloomDir);
+  const rules = mergeScanRules(configuredRules, {
+    include: data.include,
+    exclude: data.exclude,
+  });
 
   // Send scan started
   ws.send(JSON.stringify({
@@ -115,7 +282,12 @@ async function handleScanStart(ws: WebSocket, data: { path: string; personal?: b
   try {
     let fileCount = 0;
     
-    for await (const entry of scanner.scan(scanId, data.path, { personal: data.personal })) {
+    for await (const entry of scanner.scan(scanId, path, {
+      personal: data.personal,
+      include: rules.include,
+      exclude: rules.exclude,
+    })) {
+      if (!shouldIncludePath(entry.path, rules)) continue;
       batchWriter.add(entry);
       fileCount++;
 

@@ -22,7 +22,7 @@ export class Scanner extends EventEmitter {
   async *scan(
     scanId: string,
     rootPath: string,
-    options: { personal?: boolean } = {}
+    options: { personal?: boolean; include?: string[]; exclude?: string[] } = {}
   ): AsyncGenerator<FileEntry> {
     // Emit started event
     this.emit('started', { type: 'started', scan_id: scanId, root_path: rootPath } as ScanEvent);

@@ -1,7 +1,23 @@
 import { stat } from 'fs/promises';
 import { resolve, basename } from 'path';
-import { join } from 'path';
 import { extractFile, extractDirectory, type ProgressUpdate } from '../../ingestion/extractors/index.js';
+import {
+  getScanRules,
+  getDefaultRoot,
+  isInitialized,
+  listRoots,
+  loadSettings,
+  resolveOpenloomDir,
+  updatePreferences,
+} from '../../config/user-settings.js';
+import { setupCommand } from './setup.js';
+import { isOnboardingCompleted, updateWorkspaceState } from '../../config/workspace-state.js';
+import { createCliWizardPrompter } from '../../wizard/prompts.js';
+import {
+  runInteractiveExtractWizard,
+  type InteractiveExtractOptions,
+} from '../../wizard/extract-interactive.js';
+import { mergeScanRules } from '../../ingestion/filtering/rules.js';
 
 interface ExtractCommandOptions {
   openloom?: string;
@@ -10,80 +26,204 @@ interface ExtractCommandOptions {
   skipFaces?: boolean;
   textConcurrency?: string;
   imageConcurrency?: string;
+  interactive?: boolean;
   json?: boolean;
+  allRoots?: boolean;
+  include?: string[];
+  exclude?: string[];
 }
 
 export async function extractCommand(
-  targetPath: string,
+  targetPath: string | undefined,
   opts: ExtractCommandOptions,
 ): Promise<void> {
-  const resolved = resolve(targetPath);
-  const openloomDir = opts.openloom ?? join(process.cwd(), '.openloom');
+  const openloomDir = resolveOpenloomDir(opts.openloom);
+  await ensureInitializedOrSetup(openloomDir, opts.openloom);
+
+  const settings = await loadSettings(openloomDir);
+  const configuredRules = await getScanRules(openloomDir);
+  const scanRules = mergeScanRules(configuredRules, {
+    include: opts.include,
+    exclude: opts.exclude,
+  });
+  const targetPaths = await resolveTargetPaths(targetPath, openloomDir, opts.allRoots ?? false);
+  const interactiveDefaults: InteractiveExtractOptions = {
+    ocrProvider: (opts.ocrProvider as 'online' | 'local') ?? settings.preferences.ocr_provider ?? 'online',
+    skipFaceDetection: opts.skipFaces ?? settings.preferences.skip_faces ?? false,
+    textConcurrency:
+      opts.textConcurrency ? parseInt(opts.textConcurrency, 10) : settings.preferences.text_concurrency ?? 5,
+    imageConcurrency:
+      opts.imageConcurrency
+        ? parseInt(opts.imageConcurrency, 10)
+        : settings.preferences.image_concurrency ?? 3,
+  };
+
+  const interactiveOverrides = opts.interactive
+    ? await runInteractiveExtractPrompt(
+        interactiveDefaults,
+        openloomDir,
+      )
+    : null;
 
   const options = {
     openloomDir,
-    forceReextract:   opts.force ?? false,
-    ocrProvider:      (opts.ocrProvider as 'online' | 'local') ?? 'online',
-    skipFaceDetection: opts.skipFaces ?? false,
-    textConcurrency:  opts.textConcurrency  ? parseInt(opts.textConcurrency, 10)  : undefined,
-    imageConcurrency: opts.imageConcurrency ? parseInt(opts.imageConcurrency, 10) : undefined,
+    forceReextract: opts.force ?? false,
+    ocrProvider: interactiveOverrides?.ocrProvider ?? (opts.ocrProvider as 'online' | 'local') ?? 'online',
+    skipFaceDetection: interactiveOverrides?.skipFaceDetection ?? (opts.skipFaces ?? false),
+    textConcurrency:
+      interactiveOverrides?.textConcurrency ??
+      (opts.textConcurrency ? parseInt(opts.textConcurrency, 10) : undefined),
+    imageConcurrency:
+      interactiveOverrides?.imageConcurrency ??
+      (opts.imageConcurrency ? parseInt(opts.imageConcurrency, 10) : undefined),
   };
 
+  if (opts.interactive && interactiveOverrides) {
+    await maybePersistInteractivePreferences(openloomDir, interactiveOverrides);
+  }
+
+  let hasFailure = false;
+  for (const target of targetPaths) {
+    const result = await runExtractForPath(target, { ...options, scanRules }, opts.json ?? false);
+    if (result.failed) hasFailure = true;
+  }
+  if (hasFailure) process.exit(1);
+}
+
+async function ensureInitializedOrSetup(openloomDir: string, openloomOverride?: string): Promise<void> {
+  const initialized = await isInitialized(openloomDir);
+  const onboarded = await isOnboardingCompleted(openloomDir);
+  if (initialized && onboarded) return;
+
+  console.log('OpenLoom is not initialized yet. Starting setup...');
+  await setupCommand({ openloom: openloomOverride });
+}
+
+async function resolveTargetPaths(
+  targetPath: string | undefined,
+  openloomDir: string,
+  allRoots: boolean,
+): Promise<string[]> {
+  if (targetPath?.trim()) return [targetPath];
+
+  if (allRoots) {
+    const roots = await listRoots(openloomDir);
+    if (roots.length > 0) return roots.map((root) => root.path);
+  }
+
+  const root = await getDefaultRoot(openloomDir);
+  if (root?.path) return [root.path];
+
+  console.error('Error: no extract path provided and no default root configured.');
+  console.error('Use "openloom setup" or "openloom roots add <path>" first, or pass a path.');
+  process.exit(1);
+  return [];
+}
+
+async function runExtractForPath(
+  targetPath: string,
+  options: Parameters<typeof extractFile>[1],
+  jsonMode: boolean,
+): Promise<{ failed: boolean }> {
+  const resolved = resolve(targetPath);
   let info: Awaited<ReturnType<typeof stat>>;
   try {
     info = await stat(resolved);
   } catch {
     console.error(`Error: path not found: ${resolved}`);
-    process.exit(1);
+    return { failed: true };
   }
 
-  // ── Single file ───────────────────────────────────────────────────────────
   if (info.isFile()) {
     try {
       const meta = await extractFile(resolved, options);
-      if (opts.json) {
+      if (jsonMode) {
         console.log(JSON.stringify(meta, null, 2));
       } else {
         printSingleResult(meta);
       }
+      return { failed: false };
     } catch (err) {
       console.error(`Failed: ${(err as Error).message}`);
-      process.exit(1);
+      return { failed: true };
     }
-    return;
   }
 
-  // ── Directory ─────────────────────────────────────────────────────────────
   if (!info.isDirectory()) {
     console.error(`Error: not a file or directory: ${resolved}`);
-    process.exit(1);
+    return { failed: true };
   }
 
   console.log(`Scanning ${resolved} ...`);
   const spinner = new ProgressBar();
-
   const result = await extractDirectory(resolved, {
     ...options,
     onProgress: (update: ProgressUpdate) => {
       spinner.update(update);
     },
   });
-
   spinner.finish();
   console.log('');
 
-  if (opts.json) {
-    console.log(JSON.stringify({
-      succeeded: result.succeeded.length,
-      failed:    result.failed.length,
-      durationMs: result.durationMs,
-      errors: result.failed,
-    }, null, 2));
+  if (jsonMode) {
+    console.log(
+      JSON.stringify(
+        {
+          path: resolved,
+          succeeded: result.succeeded.length,
+          failed: result.failed.length,
+          durationMs: result.durationMs,
+          errors: result.failed,
+        },
+        null,
+        2,
+      ),
+    );
   } else {
     printBatchResult(result);
   }
+  return { failed: result.failed.length > 0 };
+}
 
-  if (result.failed.length > 0) process.exit(1);
+async function runInteractiveExtractPrompt(
+  defaults: InteractiveExtractOptions,
+  openloomDir: string,
+): Promise<InteractiveExtractOptions> {
+  const prompter = createCliWizardPrompter();
+  try {
+    const result = await runInteractiveExtractWizard(prompter, defaults);
+    await updateWorkspaceState(openloomDir, {
+      lastWizardRunAt: new Date().toISOString(),
+      lastWizardSource: 'extract-interactive',
+    });
+    return result;
+  } finally {
+    prompter.close();
+  }
+}
+
+async function maybePersistInteractivePreferences(
+  openloomDir: string,
+  interactiveOptions: InteractiveExtractOptions,
+): Promise<void> {
+  const prompter = createCliWizardPrompter();
+  try {
+    const saveAsDefault = await prompter.confirm({
+      message: 'Save these interactive options as defaults for next runs',
+      initialValue: true,
+    });
+    if (!saveAsDefault) return;
+
+    await updatePreferences(openloomDir, {
+      ocr_provider: interactiveOptions.ocrProvider,
+      skip_faces: interactiveOptions.skipFaceDetection,
+      text_concurrency: interactiveOptions.textConcurrency,
+      image_concurrency: interactiveOptions.imageConcurrency,
+    });
+    console.log('Interactive defaults saved to user settings.');
+  } finally {
+    prompter.close();
+  }
 }
 
 // ─── Output helpers ───────────────────────────────────────────────────────────

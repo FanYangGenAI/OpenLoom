@@ -1,10 +1,10 @@
-import { join } from 'path';
 import { extractFileAttrs, findExistingMetadata } from './file-attrs.js';
 import { readTextContent } from './text-reader.js';
 import { extractTextSemantics } from './llm-client.js';
 import { refreshMetadataIfLocationChanged } from './location-refresh.js';
 import { persistMetadata } from './persist.js';
 import type { FileMetadata } from './types.js';
+import { resolveOpenloomDir } from '../../config/user-settings.js';
 
 const EXTRACTOR_VERSION = '0.1.0';
 
@@ -31,7 +31,7 @@ export async function runTextDocAgent(
   filePath: string,
   options: TextDocAgentOptions = {},
 ): Promise<FileMetadata> {
-  const openloomDir = options.openloomDir ?? join(process.cwd(), '.openloom');
+  const openloomDir = resolveOpenloomDir(options.openloomDir);
   const errors: string[] = [];
 
   // ── Step 1: File attributes ────────────────────────────────────────────────
