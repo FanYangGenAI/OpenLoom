@@ -1,6 +1,12 @@
 import { spawn, ChildProcess } from 'child_process';
 import { createInterface } from 'readline';
+import { existsSync } from 'fs';
+import { dirname, resolve } from 'path';
+import { fileURLToPath } from 'url';
 import { FileEntry, ScanSummary } from './types.js';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const PROJECT_ROOT = resolve(__dirname, '..', '..', '..');
 
 /**
  * Bridge to the Rust scanner binary
@@ -11,8 +17,7 @@ export class ScannerBridge {
   private process: ChildProcess | null = null;
 
   constructor(binaryPath?: string) {
-    // Default to the compiled binary in the project
-    this.binaryPath = binaryPath || '/Users/fanyang/repo/OpenLoom/crates/scanner/target/release/openloom-scanner';
+    this.binaryPath = binaryPath || resolveScannerBinaryPath();
   }
 
   /**
@@ -24,6 +29,13 @@ export class ScannerBridge {
     rootPath: string,
     options: { personal?: boolean; include?: string[]; exclude?: string[] } = {}
   ): AsyncGenerator<FileEntry> {
+    if (!existsSync(this.binaryPath)) {
+      throw new Error(
+        `Scanner binary not found at: ${this.binaryPath}. ` +
+          'Build scanner first (e.g. cargo build --release in crates/scanner) ' +
+          'or set OPENLOOM_SCANNER_PATH to the correct binary.',
+      );
+    }
     const args = [rootPath];
     
     if (options.personal) {
@@ -93,6 +105,35 @@ export class ScannerBridge {
  */
 export function createScannerBridge(binaryPath?: string): ScannerBridge {
   return new ScannerBridge(binaryPath);
+}
+
+export function resolveScannerBinaryPath(params?: {
+  platform?: NodeJS.Platform;
+  env?: NodeJS.ProcessEnv;
+  projectRoot?: string;
+}): string {
+  const platform = params?.platform ?? process.platform;
+  const env = params?.env ?? process.env;
+  const projectRoot = params?.projectRoot ?? PROJECT_ROOT;
+  const suffix = platform === 'win32' ? '.exe' : '';
+
+  const envOverride = env.OPENLOOM_SCANNER_PATH?.trim();
+  if (envOverride) {
+    return envOverride;
+  }
+
+  const releasePath = resolve(projectRoot, 'crates', 'scanner', 'target', 'release', `openloom-scanner${suffix}`);
+  if (existsSync(releasePath)) {
+    return releasePath;
+  }
+
+  const debugPath = resolve(projectRoot, 'crates', 'scanner', 'target', 'debug', `openloom-scanner${suffix}`);
+  if (existsSync(debugPath)) {
+    return debugPath;
+  }
+
+  // Return release path as default target for clearer error message if missing.
+  return releasePath;
 }
 
 function deriveIgnoreNames(patterns: string[]): string[] {
