@@ -32,10 +32,12 @@ describe('workspace-state', () => {
     await updateWorkspaceState(base, {
       onboardingCompletedAt: new Date().toISOString(),
       lastWizardSource: 'setup',
+      bootstrapLifecycleStatus: 'completed',
     });
 
     expect(await isOnboardingCompleted(base)).toBe(true);
     const state = await loadWorkspaceState(base);
     expect(state.lastWizardSource).toBe('setup');
+    expect(state.bootstrapLifecycleStatus).toBe('completed');
   });
 });

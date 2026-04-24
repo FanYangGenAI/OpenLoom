@@ -4,6 +4,8 @@ import { dirname, resolve } from 'path';
 export interface WorkspaceState {
   version: 1;
   bootstrapSeededAt?: string;
+  bootstrapCompletedAt?: string;
+  bootstrapLifecycleStatus?: 'seeded' | 'completed';
   onboardingCompletedAt?: string;
   lastWizardRunAt?: string;
   lastWizardSource?: 'setup' | 'extract-interactive' | 'manual';

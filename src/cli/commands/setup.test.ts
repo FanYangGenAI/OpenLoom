@@ -31,14 +31,19 @@ describe('setupCommand', () => {
     const bootstrapRaw = await readFile(join(base, 'agent', 'BOOTSTRAP.md'), 'utf8');
 
     const settings = JSON.parse(settingsRaw) as { initialized: boolean; default_root?: { path?: string } };
-    const workspaceState = JSON.parse(workspaceStateRaw) as { onboardingCompletedAt?: string };
+    const workspaceState = JSON.parse(workspaceStateRaw) as {
+      onboardingCompletedAt?: string;
+      bootstrapLifecycleStatus?: string;
+    };
     expect(settings.initialized).toBe(true);
     expect(settings.default_root?.path).toBe(base);
     expect(lessonsRaw).toContain('preferred_user_name: pending');
     expect(workspaceState.onboardingCompletedAt).toBeTruthy();
+    expect(workspaceState.bootstrapLifecycleStatus).toBe('completed');
     expect(identityRaw).toContain('# IDENTITY.md');
     expect(userRaw).toContain('# USER.md');
     expect(soulRaw).toContain('# SOUL.md');
     expect(bootstrapRaw).toContain('# BOOTSTRAP.md');
+    expect(bootstrapRaw).toContain('status: completed');
   });
 });

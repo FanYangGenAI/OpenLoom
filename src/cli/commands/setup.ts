@@ -16,6 +16,7 @@ import {
 } from '../../config/workspace-state.js';
 import {
   ensureAgentBootstrapFiles,
+  finalizeBootstrapLifecycle,
   updateBootstrapMemoryFiles,
 } from '../../config/agent-memory/bootstrap-files.js';
 
@@ -95,6 +96,7 @@ export async function setupCommand(options: SetupOptions): Promise<void> {
     await updateWorkspaceState(openloomDir, {
       onboardingCompletedAt: new Date().toISOString(),
     });
+    await finalizeBootstrapLifecycle(openloomDir);
 
     console.log('\nSetup completed.');
     console.log(`- Settings saved: ${openloomDir}/config/user-settings.json`);

@@ -43,6 +43,7 @@ export async function ensureAgentBootstrapFiles(openloomDir: string): Promise<Bo
 
   await updateWorkspaceState(openloomDir, {
     bootstrapSeededAt: new Date().toISOString(),
+    bootstrapLifecycleStatus: 'seeded',
   });
 
   return paths;
@@ -90,4 +91,22 @@ export async function updateBootstrapMemoryFiles(
   await writeFile(identityPath, nextIdentity, 'utf8');
   await writeFile(userPath, nextUser, 'utf8');
   await writeFile(soulPath, nextSoul, 'utf8');
+}
+
+const BOOTSTRAP_COMPLETION_MARKER = '<!-- bootstrap-lifecycle:completed -->';
+
+export async function finalizeBootstrapLifecycle(openloomDir: string): Promise<void> {
+  const bootstrapPath = filePath(openloomDir, 'BOOTSTRAP.md');
+  const current = await readFile(bootstrapPath, 'utf8').catch(() => BOOTSTRAP_TEMPLATE);
+
+  if (!current.includes(BOOTSTRAP_COMPLETION_MARKER)) {
+    const completedAt = new Date().toISOString();
+    const next = `${current.trimEnd()}\n\n## Lifecycle\n\n- status: completed\n- completed_at: ${completedAt}\n\n${BOOTSTRAP_COMPLETION_MARKER}\n`;
+    await writeFile(bootstrapPath, next, 'utf8');
+  }
+
+  await updateWorkspaceState(openloomDir, {
+    bootstrapCompletedAt: new Date().toISOString(),
+    bootstrapLifecycleStatus: 'completed',
+  });
 }

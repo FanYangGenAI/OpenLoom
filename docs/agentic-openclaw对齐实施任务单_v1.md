@@ -239,7 +239,7 @@
 
 ## P2（后续优化）
 
-- [ ] T10: bootstrap 完成后的生命周期策略（归档/只读标记）
+- [x] T10: bootstrap 完成后的生命周期策略（归档/只读标记）
 - [ ] T11: Gateway/UI 端复用 WizardSession 协议
 - [ ] T12: 多 root 与规则化 include/exclude 策略
 
