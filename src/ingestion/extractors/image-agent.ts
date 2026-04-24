@@ -1,11 +1,12 @@
 import { execFile } from 'child_process';
 import { promisify } from 'util';
-import { join, resolve, dirname, fileURLToPath } from 'path';
+import { join, resolve, dirname } from 'path';
+import { fileURLToPath } from 'url';
 import { extractFileAttrs, findExistingMetadata } from './file-attrs.js';
 import { extractExif, buildExifContext } from './exif-extractor.js';
 import { extractImageSemantics } from './llm-client.js';
-import { enrichEntities, applyEnrichment } from './entity-enricher.js';
 import { detectFaces } from './face-detector.js';
+import { refreshMetadataIfLocationChanged } from './location-refresh.js';
 import { persistMetadata } from './persist.js';
 import type { FileMetadata, GeoPoint } from './types.js';
 
@@ -39,13 +40,12 @@ export interface ImageAgentOptions {
  *
  * Steps:
  *   1. File attributes (OS metadata + SHA-256)
- *   2. Hash-skip (return cached result if unchanged)
+ *   2. Hash-skip (return cached if content unchanged; refresh path if file moved/renamed)
  *   3. EXIF extraction (capture time, GPS, device)
  *   4. OCR (optional, for images likely containing text)
  *   5. AI multi-modal analysis (Gemini 2.5 Pro Vision, Structured Output)
- *   6. Entity enrichment via web search (claude-web-search skill)
- *   7. Face detection + crop saving
- *   8. Persist to .openloom/metadata/images/{hash}.md
+ *   6. Face detection + crop saving
+ *   7. Persist to .openloom/metadata/images/{hash}.md
  */
 export async function runImageAgent(
   filePath: string,
@@ -64,7 +64,9 @@ export async function runImageAgent(
     if (existing) {
       const { readMetadata } = await import('./persist.js');
       const cached = await readMetadata(attrs.hash, 'image', openloomDir);
-      if (cached) return cached;
+      if (cached) {
+        return refreshMetadataIfLocationChanged(cached, attrs, openloomDir, true);
+      }
     }
   }
 
@@ -114,18 +116,10 @@ export async function runImageAgent(
     };
   }
 
-  // ── Step 6: Entity enrichment via web search ───────────────────────────────
-  let enrichedTags = semantic.tags;
-  if (semantic.web_search_needed.length > 0) {
-    try {
-      const enrichments = await enrichEntities(semantic.web_search_needed);
-      enrichedTags = applyEnrichment(semantic.tags, enrichments);
-    } catch (err) {
-      errors.push(`entity-enricher: ${(err as Error).message}`);
-    }
-  }
+  // Web enrichment is intentionally disabled in current development stage.
+  const enrichedTags = semantic.tags;
 
-  // ── Step 7: Face detection ─────────────────────────────────────────────────
+  // ── Step 6: Face detection ─────────────────────────────────────────────────
   let faces: FileMetadata['faces'];
   if (!options.skipFaceDetection) {
     const faceResult = await detectFaces(filePath, openloomDir);
@@ -186,7 +180,7 @@ export async function runImageAgent(
     extraction_errors: errors,
   };
 
-  // ── Step 8: Persist ────────────────────────────────────────────────────────
+  // ── Step 7: Persist ────────────────────────────────────────────────────────
   await persistMetadata(metadata, openloomDir);
 
   return metadata;

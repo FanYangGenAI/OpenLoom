@@ -1,7 +1,8 @@
 import { execFile } from 'child_process';
 import { promisify } from 'util';
-import { resolve, join, fileURLToPath } from 'path';
+import { resolve } from 'path';
 import { dirname } from 'path';
+import { fileURLToPath } from 'url';
 import type { GeoPoint } from './types.js';
 
 const execFileAsync = promisify(execFile);

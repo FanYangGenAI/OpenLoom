@@ -17,9 +17,36 @@ function getClient(): GoogleGenerativeAI {
  * Gemini requires the root schema to be of type OBJECT.
  */
 function toGeminiSchema(zodSchema: ZodTypeAny) {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const jsonSchema = zodToJsonSchema(zodSchema, { target: 'openApi3' }) as any;
-  return jsonSchema;
+  // Generate OpenAPI3 JSON schema from Zod first.
+  const jsonSchema = zodToJsonSchema(zodSchema, { target: 'openApi3' }) as Record<string, unknown>;
+  return sanitizeForGeminiResponseSchema(jsonSchema);
+}
+
+/**
+ * Gemini responseSchema only supports a subset of OpenAPI/JSON Schema fields.
+ * Strip unsupported fields (notably additionalProperties) recursively.
+ */
+function sanitizeForGeminiResponseSchema(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(sanitizeForGeminiResponseSchema);
+  }
+  if (value && typeof value === 'object') {
+    const obj = value as Record<string, unknown>;
+    const out: Record<string, unknown> = {};
+    for (const [key, child] of Object.entries(obj)) {
+      if (
+        key === '$schema' ||
+        key === 'additionalProperties' ||
+        key === 'unevaluatedProperties' ||
+        key === 'patternProperties'
+      ) {
+        continue;
+      }
+      out[key] = sanitizeForGeminiResponseSchema(child);
+    }
+    return out;
+  }
+  return value;
 }
 
 // ─── Text semantic extraction ─────────────────────────────────────────────────

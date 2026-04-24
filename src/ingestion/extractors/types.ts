@@ -41,6 +41,15 @@ export const TagsSchema = z.object({
 });
 export type Tags = z.infer<typeof TagsSchema>;
 
+/** Prior locations for the same content hash (rename / move without re-extract). */
+export const PathHistoryEntrySchema = z.object({
+  file_path: z.string(),
+  file_name: z.string(),
+  parent_folder: z.string(),
+  recorded_at: z.string(),
+});
+export type PathHistoryEntry = z.infer<typeof PathHistoryEntrySchema>;
+
 // ─── AI semantic output schema (Structured Output from LLM) ──────────────────
 
 export const SemanticOutputSchema = z.object({
@@ -71,6 +80,8 @@ export const FileMetadataSchema = z.object({
   modified_at: z.string(),  // ISO 8601
   hash: z.string(),         // SHA-256
   parent_folder: z.string(),
+  /** Populated when the same hash is seen at a new path (hash-skip + location refresh). */
+  path_history: z.array(PathHistoryEntrySchema).optional(),
 
   // Optional file attributes (from format metadata or AI inference)
   author: z.string().optional(),

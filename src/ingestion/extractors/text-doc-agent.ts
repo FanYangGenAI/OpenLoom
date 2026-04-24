@@ -2,7 +2,7 @@ import { join } from 'path';
 import { extractFileAttrs, findExistingMetadata } from './file-attrs.js';
 import { readTextContent } from './text-reader.js';
 import { extractTextSemantics } from './llm-client.js';
-import { enrichEntities, applyEnrichment } from './entity-enricher.js';
+import { refreshMetadataIfLocationChanged } from './location-refresh.js';
 import { persistMetadata } from './persist.js';
 import type { FileMetadata } from './types.js';
 
@@ -22,11 +22,10 @@ export interface TextDocAgentOptions {
  *
  * Steps:
  *   1. File attributes (OS metadata + SHA-256)
- *   2. Hash-skip (return cached result if unchanged)
+ *   2. Hash-skip (return cached if content unchanged; refresh path if file moved/renamed)
  *   3. Text content reading (plain text or mammoth for docx)
  *   4. AI semantic extraction (Gemini 2.5 Pro, Structured Output)
- *   5. Entity enrichment via web search (claude-web-search skill)
- *   6. Persist to .openloom/metadata/text_docs/{hash}.md
+ *   5. Persist to .openloom/metadata/text_docs/{hash}.md
  */
 export async function runTextDocAgent(
   filePath: string,
@@ -44,7 +43,9 @@ export async function runTextDocAgent(
     if (existing) {
       const { readMetadata } = await import('./persist.js');
       const cached = await readMetadata(attrs.hash, 'text_doc', openloomDir);
-      if (cached) return cached;
+      if (cached) {
+        return refreshMetadataIfLocationChanged(cached, attrs, openloomDir, false);
+      }
     }
   }
 
@@ -72,16 +73,8 @@ export async function runTextDocAgent(
     };
   }
 
-  // ── Step 5: Entity enrichment via web search ───────────────────────────────
-  let enrichedTags = semantic.tags;
-  if (semantic.web_search_needed.length > 0) {
-    try {
-      const enrichments = await enrichEntities(semantic.web_search_needed);
-      enrichedTags = applyEnrichment(semantic.tags, enrichments);
-    } catch (err) {
-      errors.push(`entity-enricher: ${(err as Error).message}`);
-    }
-  }
+  // Web enrichment is intentionally disabled in current development stage.
+  const enrichedTags = semantic.tags;
 
   // ── Resolve author: docx properties > AI inference ────────────────────────
   const author = textResult.author ?? semantic.author_inferred ?? undefined;
@@ -115,7 +108,7 @@ export async function runTextDocAgent(
     extraction_errors: errors,
   };
 
-  // ── Step 6: Persist ────────────────────────────────────────────────────────
+  // ── Step 5: Persist ────────────────────────────────────────────────────────
   await persistMetadata(metadata, openloomDir);
 
   return metadata;
