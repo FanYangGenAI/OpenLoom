@@ -17,8 +17,14 @@ This skill coordinates option prompts, then delegates extraction to existing pip
 ## Usage
 
 ```bash
-node {baseDir}/scripts/run.js --json
+node {baseDir}/scripts/run.js --json [--openloom "<openloom-dir>"] [--ocr-provider online|local] [--skip-faces true|false] [--text-concurrency <n>] [--image-concurrency <n>]
 ```
+
+Behavior:
+
+- Resolves defaults from `.openloom/config/user-settings.json`
+- Applies optional CLI overrides
+- Outputs normalized options for extract invocation
 
 ## Output format
 
@@ -29,6 +35,8 @@ Returns JSON to stdout:
   "ocrProvider": "online",
   "skipFaceDetection": false,
   "textConcurrency": 5,
-  "imageConcurrency": 3
+  "imageConcurrency": 3,
+  "openloomDir": "/path/to/.openloom",
+  "settingsPath": "/path/to/.openloom/config/user-settings.json"
 }
 ```

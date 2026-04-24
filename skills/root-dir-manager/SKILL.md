@@ -22,6 +22,12 @@ node {baseDir}/scripts/run.js set "<root-path>" --openloom "<openloom-dir>"
 node {baseDir}/scripts/run.js clear --openloom "<openloom-dir>"
 ```
 
+Implementation details:
+
+- Directly reads/writes `.openloom/config/user-settings.json`
+- Guarantees stable JSON output for every action
+- Returns non-zero exit code on unsupported action or invalid input
+
 ## Output format
 
 Returns JSON to stdout:
@@ -30,6 +36,9 @@ Returns JSON to stdout:
 {
   "status": "ok",
   "action": "set",
-  "default_root": "/path/to/data"
+  "openloom_dir": "/path/to/.openloom",
+  "default_root": "/path/to/data",
+  "settings_path": "/path/to/.openloom/config/user-settings.json",
+  "message": "default root updated"
 }
 ```

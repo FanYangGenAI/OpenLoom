@@ -21,6 +21,12 @@ This skill orchestrates first-time onboarding for the agent-user relationship.
 node {baseDir}/scripts/run.js --openloom "<openloom-dir>" [--root "<root-path>"] [--non-interactive]
 ```
 
+Runtime behavior:
+
+- Executes `openloom setup` using `node --import tsx src/cli/index.ts setup`
+- Returns status, exit code, and last output lines
+- Verifies whether lessons/settings files were produced
+
 ## Output format
 
 Returns JSON to stdout:
@@ -29,11 +35,22 @@ Returns JSON to stdout:
 {
   "status": "initialized",
   "openloom_dir": "/path/to/.openloom",
+  "default_root": "/path/to/data",
+  "non_interactive": true,
   "lessons_path": "/path/to/.openloom/agent/lessons.md",
   "settings_path": "/path/to/.openloom/config/user-settings.json",
   "checks": {
     "deepseek_api_key": true,
     "ollama_env": false
+  },
+  "setup": {
+    "exit_code": 0,
+    "stdout": ["..."],
+    "stderr": []
+  },
+  "files": {
+    "lessons_exists": true,
+    "settings_exists": true
   }
 }
 ```

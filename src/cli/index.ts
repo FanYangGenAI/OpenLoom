@@ -63,7 +63,7 @@ roots
   .action(rootsShowCommand);
 
 roots
-  .command('set <path>')
+  .command('set [path]')
   .option('--openloom <dir>', 'Path to .openloom data directory (default: ./.openloom)')
   .action(rootsSetCommand);
 

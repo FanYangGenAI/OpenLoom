@@ -26,4 +26,20 @@ describe('roots commands', () => {
     settings = JSON.parse(settingsRaw) as { default_root?: { path?: string } | null };
     expect(settings.default_root).toBeNull();
   });
+
+  it('does not update root when set is called without path', async () => {
+    const base = await mkdtemp(join(tmpdir(), 'openloom-roots-'));
+    tempDirs.push(base);
+
+    await rootsSetCommand(undefined, { openloom: base });
+    const settingsRaw = await readFile(join(base, 'config', 'user-settings.json'), 'utf8').catch(
+      () => '',
+    );
+    if (!settingsRaw) {
+      expect(settingsRaw).toBe('');
+      return;
+    }
+    const settings = JSON.parse(settingsRaw) as { default_root?: { path?: string } | null };
+    expect(settings.default_root ?? null).toBeNull();
+  });
 });

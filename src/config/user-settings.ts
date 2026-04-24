@@ -108,3 +108,19 @@ export async function setDefaultRoot(
   await saveSettings(openloomDir, next);
   return next;
 }
+
+export async function updatePreferences(
+  openloomDir: string,
+  patch: Partial<UserPreferences>,
+): Promise<UserSettings> {
+  const settings = await loadSettings(openloomDir);
+  const next: UserSettings = {
+    ...settings,
+    preferences: {
+      ...settings.preferences,
+      ...patch,
+    },
+  };
+  await saveSettings(openloomDir, next);
+  return next;
+}

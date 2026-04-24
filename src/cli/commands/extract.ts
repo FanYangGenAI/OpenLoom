@@ -1,7 +1,13 @@
 import { stat } from 'fs/promises';
 import { resolve, basename } from 'path';
 import { extractFile, extractDirectory, type ProgressUpdate } from '../../ingestion/extractors/index.js';
-import { getDefaultRoot, isInitialized, resolveOpenloomDir } from '../../config/user-settings.js';
+import {
+  getDefaultRoot,
+  isInitialized,
+  loadSettings,
+  resolveOpenloomDir,
+  updatePreferences,
+} from '../../config/user-settings.js';
 import { setupCommand } from './setup.js';
 import { isOnboardingCompleted, updateWorkspaceState } from '../../config/workspace-state.js';
 import { createCliWizardPrompter } from '../../wizard/prompts.js';
@@ -30,14 +36,21 @@ export async function extractCommand(
 
   const resolvedTargetPath = await resolveTargetPath(targetPath, openloomDir);
   const resolved = resolve(resolvedTargetPath);
+  const settings = await loadSettings(openloomDir);
+  const interactiveDefaults: InteractiveExtractOptions = {
+    ocrProvider: (opts.ocrProvider as 'online' | 'local') ?? settings.preferences.ocr_provider ?? 'online',
+    skipFaceDetection: opts.skipFaces ?? settings.preferences.skip_faces ?? false,
+    textConcurrency:
+      opts.textConcurrency ? parseInt(opts.textConcurrency, 10) : settings.preferences.text_concurrency ?? 5,
+    imageConcurrency:
+      opts.imageConcurrency
+        ? parseInt(opts.imageConcurrency, 10)
+        : settings.preferences.image_concurrency ?? 3,
+  };
+
   const interactiveOverrides = opts.interactive
     ? await runInteractiveExtractPrompt(
-        {
-          ocrProvider: (opts.ocrProvider as 'online' | 'local') ?? 'online',
-          skipFaceDetection: opts.skipFaces ?? false,
-          textConcurrency: opts.textConcurrency ? parseInt(opts.textConcurrency, 10) : 5,
-          imageConcurrency: opts.imageConcurrency ? parseInt(opts.imageConcurrency, 10) : 3,
-        },
+        interactiveDefaults,
         openloomDir,
       )
     : null;
@@ -54,6 +67,10 @@ export async function extractCommand(
       interactiveOverrides?.imageConcurrency ??
       (opts.imageConcurrency ? parseInt(opts.imageConcurrency, 10) : undefined),
   };
+
+  if (opts.interactive && interactiveOverrides) {
+    await maybePersistInteractivePreferences(openloomDir, interactiveOverrides);
+  }
 
   let info: Awaited<ReturnType<typeof stat>>;
   try {
@@ -144,6 +161,30 @@ async function runInteractiveExtractPrompt(
       lastWizardSource: 'extract-interactive',
     });
     return result;
+  } finally {
+    prompter.close();
+  }
+}
+
+async function maybePersistInteractivePreferences(
+  openloomDir: string,
+  interactiveOptions: InteractiveExtractOptions,
+): Promise<void> {
+  const prompter = createCliWizardPrompter();
+  try {
+    const saveAsDefault = await prompter.confirm({
+      message: 'Save these interactive options as defaults for next runs',
+      initialValue: true,
+    });
+    if (!saveAsDefault) return;
+
+    await updatePreferences(openloomDir, {
+      ocr_provider: interactiveOptions.ocrProvider,
+      skip_faces: interactiveOptions.skipFaceDetection,
+      text_concurrency: interactiveOptions.textConcurrency,
+      image_concurrency: interactiveOptions.imageConcurrency,
+    });
+    console.log('Interactive defaults saved to user settings.');
   } finally {
     prompter.close();
   }

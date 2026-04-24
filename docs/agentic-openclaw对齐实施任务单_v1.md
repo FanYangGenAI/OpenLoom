@@ -224,18 +224,18 @@
 
 ## P0（必须）
 
-- [ ] T1: 建立 `src/wizard` 抽象并接管 `setup`
-- [ ] T2: 引入 `workspace-state.json` 与完成判定
-- [ ] T3: 引入 bootstrap 文件 seed（BOOTSTRAP/IDENTITY/USER/SOUL）
-- [ ] T4: 实现 `lessons.md` 字段级 merge（非覆盖）
-- [ ] T5: `extract --interactive` 自动 onboarding 且不回归
-- [ ] T6: 补齐单测与集成测试，形成 CI 可跑最小集合
+- [x] T1: 建立 `src/wizard` 抽象并接管 `setup`
+- [x] T2: 引入 `workspace-state.json` 与完成判定
+- [x] T3: 引入 bootstrap 文件 seed（BOOTSTRAP/IDENTITY/USER/SOUL）
+- [x] T4: 实现 `lessons.md` 字段级 merge（非覆盖）
+- [x] T5: `extract --interactive` 自动 onboarding 且不回归
+- [x] T6: 补齐单测与集成测试，形成 CI 可跑最小集合
 
 ## P1（强烈建议）
 
-- [ ] T7: `extract --interactive` 全量迁移到 wizard prompter
-- [ ] T8: roots 命令交互语义统一（与 wizard 同风格）
-- [ ] T9: 三个 skill 从占位脚本升级为真实契约实现
+- [x] T7: `extract --interactive` 全量迁移到 wizard prompter
+- [x] T8: roots 命令交互语义统一（与 wizard 同风格）
+- [x] T9: 三个 skill 从占位脚本升级为真实契约实现
 
 ## P2（后续优化）
 
@@ -266,6 +266,15 @@
 - onboarding 是否具备可恢复、可重入特性？
 - 是否保留非交互路径，避免影响自动化？
 - 是否每个里程碑都能独立回滚？
+
+### 最新验证记录（2026-04-24）
+
+- 执行命令：`npm run dev -- extract --interactive data/fanyang --openloom .openloom`
+- 验证结果：
+  - 未完成 onboarding 时自动触发 setup
+  - onboarding 完成后无中断继续 interactive extract
+  - interactive 参数可保存到 `user-settings.json`
+  - `data/fanyang` 样本提取成功（3/3）
 
 ---
 

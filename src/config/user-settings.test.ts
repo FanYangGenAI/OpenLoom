@@ -10,6 +10,7 @@ import {
   resolveOpenloomDir,
   saveSettings,
   setDefaultRoot,
+  updatePreferences,
 } from './user-settings.js';
 
 describe('user-settings', () => {
@@ -78,5 +79,20 @@ describe('user-settings', () => {
     const loaded = await loadSettings(base);
     expect(loaded.preferences.ocr_provider).toBe('local');
     expect(loaded.default_root?.path).toContain('my-root');
+  });
+
+  it('updates preferences incrementally', async () => {
+    const base = await mkdtemp(join(tmpdir(), 'openloom-settings-'));
+    tempDirs.push(base);
+
+    await updatePreferences(base, {
+      ocr_provider: 'local',
+      text_concurrency: 9,
+    });
+
+    const loaded = await loadSettings(base);
+    expect(loaded.preferences.ocr_provider).toBe('local');
+    expect(loaded.preferences.text_concurrency).toBe(9);
+    expect(loaded.preferences.image_concurrency).toBe(3);
   });
 });
