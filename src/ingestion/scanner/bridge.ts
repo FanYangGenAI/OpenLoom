@@ -22,12 +22,16 @@ export class ScannerBridge {
    */
   async *scan(
     rootPath: string,
-    options: { personal?: boolean } = {}
+    options: { personal?: boolean; include?: string[]; exclude?: string[] } = {}
   ): AsyncGenerator<FileEntry> {
     const args = [rootPath];
     
     if (options.personal) {
       args.push('--personal');
+    }
+    const ignoreNames = deriveIgnoreNames(options.exclude ?? []);
+    for (const ignore of ignoreNames) {
+      args.push('-i', ignore);
     }
 
     // Spawn the scanner process
@@ -89,4 +93,19 @@ export class ScannerBridge {
  */
 export function createScannerBridge(binaryPath?: string): ScannerBridge {
   return new ScannerBridge(binaryPath);
+}
+
+function deriveIgnoreNames(patterns: string[]): string[] {
+  const names = new Set<string>();
+  for (const pattern of patterns) {
+    const normalized = pattern.replace(/\\/g, '/');
+    const segments = normalized.split('/').filter(Boolean);
+    for (const segment of segments) {
+      if (segment === '*' || segment === '**' || segment.includes('*') || segment.includes('?')) {
+        continue;
+      }
+      names.add(segment);
+    }
+  }
+  return Array.from(names);
 }

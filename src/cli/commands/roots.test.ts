@@ -2,7 +2,12 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { mkdtemp, readFile, rm } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { rootsClearCommand, rootsSetCommand } from './roots.js';
+import {
+  rootsAddCommand,
+  rootsClearCommand,
+  rootsRemoveCommand,
+  rootsSetDefaultCommand,
+} from './roots.js';
 
 describe('roots commands', () => {
   const tempDirs: string[] = [];
@@ -12,34 +17,37 @@ describe('roots commands', () => {
     tempDirs.length = 0;
   });
 
-  it('set and clear default root in settings', async () => {
+  it('add, set-default and clear roots in settings', async () => {
     const base = await mkdtemp(join(tmpdir(), 'openloom-roots-'));
     tempDirs.push(base);
 
-    await rootsSetCommand('/tmp/root-a', { openloom: base });
+    await rootsAddCommand('/tmp/root-a', { openloom: base });
+    await rootsSetDefaultCommand('/tmp/root-a', { openloom: base });
     let settingsRaw = await readFile(join(base, 'config', 'user-settings.json'), 'utf8');
-    let settings = JSON.parse(settingsRaw) as { default_root?: { path?: string } | null };
+    let settings = JSON.parse(settingsRaw) as {
+      default_root?: { path?: string } | null;
+      roots?: Array<{ path?: string }>;
+    };
     expect(settings.default_root?.path).toContain('root-a');
+    expect(settings.roots?.length).toBe(1);
 
     await rootsClearCommand({ openloom: base });
     settingsRaw = await readFile(join(base, 'config', 'user-settings.json'), 'utf8');
-    settings = JSON.parse(settingsRaw) as { default_root?: { path?: string } | null };
+    settings = JSON.parse(settingsRaw) as { default_root?: { path?: string } | null; roots?: [] };
     expect(settings.default_root).toBeNull();
+    expect(settings.roots).toEqual([]);
   });
 
-  it('does not update root when set is called without path', async () => {
+  it('removes root from settings', async () => {
     const base = await mkdtemp(join(tmpdir(), 'openloom-roots-'));
     tempDirs.push(base);
+    await rootsAddCommand('/tmp/root-a', { openloom: base });
+    await rootsAddCommand('/tmp/root-b', { openloom: base });
 
-    await rootsSetCommand(undefined, { openloom: base });
-    const settingsRaw = await readFile(join(base, 'config', 'user-settings.json'), 'utf8').catch(
-      () => '',
-    );
-    if (!settingsRaw) {
-      expect(settingsRaw).toBe('');
-      return;
-    }
-    const settings = JSON.parse(settingsRaw) as { default_root?: { path?: string } | null };
-    expect(settings.default_root ?? null).toBeNull();
+    await rootsRemoveCommand('/tmp/root-a', { openloom: base });
+    const settingsRaw = await readFile(join(base, 'config', 'user-settings.json'), 'utf8');
+    const settings = JSON.parse(settingsRaw) as { roots?: Array<{ path?: string }> };
+    expect(settings.roots?.length).toBe(1);
+    expect(settings.roots?.[0]?.path).toContain('root-b');
   });
 });

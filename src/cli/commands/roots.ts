@@ -1,5 +1,12 @@
 import { resolve } from 'path';
-import { getDefaultRoot, resolveOpenloomDir, setDefaultRoot } from '../../config/user-settings.js';
+import {
+  addRoot,
+  getDefaultRoot,
+  listRoots,
+  removeRoot,
+  resolveOpenloomDir,
+  setDefaultRoot,
+} from '../../config/user-settings.js';
 import { createCliWizardPrompter } from '../../wizard/prompts.js';
 
 interface RootsCommandOptions {
@@ -7,18 +14,26 @@ interface RootsCommandOptions {
 }
 
 export async function rootsShowCommand(options: RootsCommandOptions): Promise<void> {
-  const openloomDir = resolveOpenloomDir(options.openloom);
-  const root = await getDefaultRoot(openloomDir);
-
-  if (!root) {
-    console.log('No default root configured.');
-    return;
-  }
-
-  console.log(`Default root: ${root.path}`);
+  await rootsListCommand(options);
 }
 
-export async function rootsSetCommand(
+export async function rootsListCommand(options: RootsCommandOptions): Promise<void> {
+  const openloomDir = resolveOpenloomDir(options.openloom);
+  const roots = await listRoots(openloomDir);
+  const root = await getDefaultRoot(openloomDir);
+
+  if (roots.length === 0) {
+    console.log('No source roots configured.');
+    return;
+  }
+  console.log('Configured source roots:');
+  for (const configuredRoot of roots) {
+    const marker = configuredRoot.path === root?.path ? ' (default)' : '';
+    console.log(`- ${configuredRoot.path}${marker}`);
+  }
+}
+
+export async function rootsAddCommand(
   rootPath: string | undefined,
   options: RootsCommandOptions,
 ): Promise<void> {
@@ -46,12 +61,45 @@ export async function rootsSetCommand(
   }
 
   const resolvedRoot = resolve(pathInput);
+  await addRoot(openloomDir, resolvedRoot);
+  console.log(`Source root added: ${resolvedRoot}`);
+}
+
+export async function rootsSetDefaultCommand(
+  rootPath: string | undefined,
+  options: RootsCommandOptions,
+): Promise<void> {
+  const openloomDir = resolveOpenloomDir(options.openloom);
+  if (!rootPath?.trim()) {
+    console.log('No root path provided. Skip update.');
+    return;
+  }
+  const resolvedRoot = resolve(rootPath.trim());
+  await addRoot(openloomDir, resolvedRoot);
   await setDefaultRoot(openloomDir, resolvedRoot);
   console.log(`Default root set to: ${resolvedRoot}`);
 }
 
+export async function rootsRemoveCommand(
+  rootPath: string | undefined,
+  options: RootsCommandOptions,
+): Promise<void> {
+  const openloomDir = resolveOpenloomDir(options.openloom);
+  if (!rootPath?.trim()) {
+    console.log('No root path provided. Skip remove.');
+    return;
+  }
+  const resolvedRoot = resolve(rootPath.trim());
+  await removeRoot(openloomDir, resolvedRoot);
+  console.log(`Source root removed: ${resolvedRoot}`);
+}
+
 export async function rootsClearCommand(options: RootsCommandOptions): Promise<void> {
   const openloomDir = resolveOpenloomDir(options.openloom);
+  const roots = await listRoots(openloomDir);
+  for (const root of roots) {
+    await removeRoot(openloomDir, root.path);
+  }
   await setDefaultRoot(openloomDir, null);
-  console.log('Default root cleared.');
+  console.log('All source roots cleared.');
 }

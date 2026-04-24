@@ -5,6 +5,8 @@ import { runTextDocAgent, type TextDocAgentOptions } from './text-doc-agent.js';
 import { runImageAgent, type ImageAgentOptions } from './image-agent.js';
 import { runConcurrent } from './concurrency.js';
 import type { FileMetadata } from './types.js';
+import type { ScanRules } from '../../config/user-settings.js';
+import { isExcludedPath, shouldIncludePath } from '../filtering/rules.js';
 
 // Default concurrency limits — conservative to respect API rate limits
 const DEFAULT_TEXT_CONCURRENCY  = 5;
@@ -21,6 +23,7 @@ export interface ExtractOptions {
   imageConcurrency?: number;
   /** Called after each file completes (success or failure) */
   onProgress?: (update: ProgressUpdate) => void;
+  scanRules?: ScanRules;
 }
 
 export interface ProgressUpdate {
@@ -77,7 +80,7 @@ export async function extractDirectory(
   // ── Collect all supported files ───────────────────────────────────────────
   const textFiles: string[] = [];
   const imageFiles: string[] = [];
-  await collectFiles(dirPath, textFiles, imageFiles);
+  await collectFiles(dirPath, textFiles, imageFiles, options.scanRules);
 
   const total = textFiles.length + imageFiles.length;
   let completed = 0;
@@ -148,6 +151,7 @@ async function collectFiles(
   dir: string,
   textFiles: string[],
   imageFiles: string[],
+  rules?: ScanRules,
 ): Promise<void> {
   let entries: string[];
   try {
@@ -166,8 +170,10 @@ async function collectFiles(
       if (!info) return;
 
       if (info.isDirectory()) {
-        await collectFiles(fullPath, textFiles, imageFiles);
+        if (rules && isExcludedPath(fullPath, rules)) return;
+        await collectFiles(fullPath, textFiles, imageFiles, rules);
       } else if (info.isFile()) {
+        if (rules && !shouldIncludePath(fullPath, rules)) return;
         const fileType = detectFileType(extname(entry));
         if (fileType === 'text_doc') textFiles.push(fullPath);
         else if (fileType === 'image') imageFiles.push(fullPath);

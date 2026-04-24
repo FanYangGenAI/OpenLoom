@@ -5,7 +5,22 @@ import { statusCommand } from './commands/status.js';
 import { serveCommand } from './commands/serve.js';
 import { extractCommand } from './commands/extract.js';
 import { setupCommand } from './commands/setup.js';
-import { rootsClearCommand, rootsSetCommand, rootsShowCommand } from './commands/roots.js';
+import {
+  rootsAddCommand,
+  rootsClearCommand,
+  rootsListCommand,
+  rootsRemoveCommand,
+  rootsSetDefaultCommand,
+  rootsShowCommand,
+} from './commands/roots.js';
+import {
+  rulesExcludeAddCommand,
+  rulesExcludeRemoveCommand,
+  rulesIncludeAddCommand,
+  rulesIncludeRemoveCommand,
+  rulesResetDefaultCommand,
+  rulesShowCommand,
+} from './commands/rules.js';
 
 const program = new Command();
 
@@ -15,9 +30,13 @@ program
   .version('0.1.0');
 
 program
-  .command('scan <path>')
+  .command('scan [path]')
   .description('Scan a directory for file metadata')
   .option('-p, --personal', 'Personal mode: exclude common ignore patterns')
+  .option('--openloom <dir>', 'Path to .openloom data directory (default: ./.openloom)')
+  .option('--all-roots', 'Scan all configured source roots')
+  .option('--include <glob...>', 'Include glob patterns')
+  .option('--exclude <glob...>', 'Exclude glob patterns')
   .option('-o, --output <file>', 'Output file (default: stdout)')
   .action(scanCommand);
 
@@ -31,6 +50,9 @@ program
   .option('--text-concurrency <n>',  'Max parallel TextDocAgent workers', '5')
   .option('--image-concurrency <n>', 'Max parallel ImageAgent workers', '3')
   .option('-i, --interactive',       'Use interactive prompt to resolve extract options')
+  .option('--all-roots',             'Extract from all configured source roots')
+  .option('--include <glob...>',     'Include glob patterns')
+  .option('--exclude <glob...>',     'Exclude glob patterns')
   .option('--json',                  'Output results as JSON')
   .action(extractCommand);
 
@@ -55,7 +77,7 @@ program
 
 const roots = program
   .command('roots')
-  .description('Manage default user data root directory');
+  .description('Manage source root directories');
 
 roots
   .command('show')
@@ -63,13 +85,65 @@ roots
   .action(rootsShowCommand);
 
 roots
+  .command('list')
+  .option('--openloom <dir>', 'Path to .openloom data directory (default: ./.openloom)')
+  .action(rootsListCommand);
+
+roots
+  .command('add [path]')
+  .option('--openloom <dir>', 'Path to .openloom data directory (default: ./.openloom)')
+  .action(rootsAddCommand);
+
+roots
+  .command('remove [path]')
+  .option('--openloom <dir>', 'Path to .openloom data directory (default: ./.openloom)')
+  .action(rootsRemoveCommand);
+
+roots
+  .command('set-default [path]')
+  .option('--openloom <dir>', 'Path to .openloom data directory (default: ./.openloom)')
+  .action(rootsSetDefaultCommand);
+
+roots
   .command('set [path]')
   .option('--openloom <dir>', 'Path to .openloom data directory (default: ./.openloom)')
-  .action(rootsSetCommand);
+  .action(rootsSetDefaultCommand);
 
 roots
   .command('clear')
   .option('--openloom <dir>', 'Path to .openloom data directory (default: ./.openloom)')
   .action(rootsClearCommand);
+
+const rules = program.command('rules').description('Manage include/exclude scan rules');
+
+rules
+  .command('show')
+  .option('--openloom <dir>', 'Path to .openloom data directory (default: ./.openloom)')
+  .action(rulesShowCommand);
+
+rules
+  .command('include-add <pattern>')
+  .option('--openloom <dir>', 'Path to .openloom data directory (default: ./.openloom)')
+  .action(rulesIncludeAddCommand);
+
+rules
+  .command('include-remove <pattern>')
+  .option('--openloom <dir>', 'Path to .openloom data directory (default: ./.openloom)')
+  .action(rulesIncludeRemoveCommand);
+
+rules
+  .command('exclude-add <pattern>')
+  .option('--openloom <dir>', 'Path to .openloom data directory (default: ./.openloom)')
+  .action(rulesExcludeAddCommand);
+
+rules
+  .command('exclude-remove <pattern>')
+  .option('--openloom <dir>', 'Path to .openloom data directory (default: ./.openloom)')
+  .action(rulesExcludeRemoveCommand);
+
+rules
+  .command('reset-default')
+  .option('--openloom <dir>', 'Path to .openloom data directory (default: ./.openloom)')
+  .action(rulesResetDefaultCommand);
 
 program.parse();

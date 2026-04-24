@@ -240,8 +240,8 @@
 ## P2（后续优化）
 
 - [x] T10: bootstrap 完成后的生命周期策略（归档/只读标记）
-- [ ] T11: Gateway/UI 端复用 WizardSession 协议
-- [ ] T12: 多 root 与规则化 include/exclude 策略
+- [x] T11: Gateway/UI 端复用 WizardSession 协议（MVP：`wizard.start/next/answer/cancel`）
+- [x] T12: 多输入源目录（source roots）与规则化 include/exclude 策略
 
 ---
 
@@ -275,6 +275,15 @@
   - onboarding 完成后无中断继续 interactive extract
   - interactive 参数可保存到 `user-settings.json`
   - `data/fanyang` 样本提取成功（3/3）
+  - Gateway 已支持 WizardSession 协议消息：`wizard.start`/`wizard.next`/`wizard.answer`/`wizard.cancel`
+  - `dev-ui` 可通过输入 `/onboarding` 触发 onboarding wizard（MVP）
+  - `user-settings.json` 已支持 `roots` 与 `scan_rules(include/exclude)`，兼容旧 `default_root`
+  - CLI 已支持 `roots add/remove/list/set-default/clear` 与 `rules show/include-add/include-remove/exclude-add/exclude-remove/reset-default`
+  - `extract` 与 `scan` 已支持 `--all-roots --include --exclude`，并统一采用 `exclude` 优先规则
+  - Gateway `scan.start` 已支持 include/exclude 并与 CLI 规则语义一致
+  - 实测（`.tmp/t12-openloom`）：`roots`/`rules` 命令可正常持久化，`extract --all-roots --include "**/*.docx"` 可命中并处理样本文件
+  - 已修复：include 非空时目录被提前过滤导致 `extract` 返回 0 文件的问题
+  - 已知阻塞（历史问题，非 T12 新引入）：`scan` 仍依赖 `src/ingestion/scanner/bridge.ts` 中硬编码的 macOS scanner binary 路径，Windows 环境会触发 `ENOENT`
 
 ---
 
@@ -404,3 +413,77 @@ flowchart LR
 - 改动说明
 - 验收截图/日志
 - 回滚说明
+
+---
+
+## 7. T12 命令行使用示例（可直接复制）
+
+以下示例默认在仓库根目录执行，且 `.openloom` 使用默认路径。
+
+### 7.1 配置多输入源目录（source roots）
+
+```bash
+npm run dev -- roots add "D:/data/work"
+npm run dev -- roots add "D:/data/personal"
+npm run dev -- roots set-default "D:/data/work"
+npm run dev -- roots list
+```
+
+预期：
+- `roots list` 可看到多个 source roots；
+- 默认 root 带 `(default)` 标记。
+
+### 7.2 配置 include/exclude 规则
+
+```bash
+npm run dev -- rules show
+npm run dev -- rules include-add "**/*.md"
+npm run dev -- rules include-add "**/*.png"
+npm run dev -- rules exclude-add "**/.cache/**"
+npm run dev -- rules exclude-add "**/node_modules/**"
+npm run dev -- rules show
+```
+
+预期：
+- `rules show` 中 include/exclude 规则已更新；
+- 规则语义为 `exclude` 优先于 `include`。
+
+### 7.3 extract：单路径 + 多 roots
+
+```bash
+# 单路径提取（显式传入）
+npm run dev -- extract "D:/data/work" --include "**/*.md" --exclude "**/.git/**"
+
+# 从全部 source roots 提取
+npm run dev -- extract --all-roots
+```
+
+预期：
+- 单路径模式仅处理传入路径；
+- `--all-roots` 模式遍历已配置全部 source roots；
+- include/exclude 行为与 rules 配置一致。
+
+### 7.4 scan：单路径 + 多 roots
+
+```bash
+# 单路径扫描
+npm run dev -- scan "D:/data/work" --include "**/*.md" --exclude "**/dist/**"
+
+# 扫描全部 source roots
+npm run dev -- scan --all-roots
+```
+
+预期：
+- `scan` 支持与 `extract` 同语义规则参数；
+- 未传路径时可通过默认 root 或 `--all-roots` 执行。
+
+### 7.5 恢复默认规则
+
+```bash
+npm run dev -- rules reset-default
+npm run dev -- rules show
+```
+
+预期：
+- include 为空；
+- exclude 恢复为系统默认安全排除项。

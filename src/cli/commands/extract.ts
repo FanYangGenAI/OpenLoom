@@ -2,8 +2,10 @@ import { stat } from 'fs/promises';
 import { resolve, basename } from 'path';
 import { extractFile, extractDirectory, type ProgressUpdate } from '../../ingestion/extractors/index.js';
 import {
+  getScanRules,
   getDefaultRoot,
   isInitialized,
+  listRoots,
   loadSettings,
   resolveOpenloomDir,
   updatePreferences,
@@ -15,6 +17,7 @@ import {
   runInteractiveExtractWizard,
   type InteractiveExtractOptions,
 } from '../../wizard/extract-interactive.js';
+import { mergeScanRules } from '../../ingestion/filtering/rules.js';
 
 interface ExtractCommandOptions {
   openloom?: string;
@@ -25,6 +28,9 @@ interface ExtractCommandOptions {
   imageConcurrency?: string;
   interactive?: boolean;
   json?: boolean;
+  allRoots?: boolean;
+  include?: string[];
+  exclude?: string[];
 }
 
 export async function extractCommand(
@@ -34,9 +40,13 @@ export async function extractCommand(
   const openloomDir = resolveOpenloomDir(opts.openloom);
   await ensureInitializedOrSetup(openloomDir, opts.openloom);
 
-  const resolvedTargetPath = await resolveTargetPath(targetPath, openloomDir);
-  const resolved = resolve(resolvedTargetPath);
   const settings = await loadSettings(openloomDir);
+  const configuredRules = await getScanRules(openloomDir);
+  const scanRules = mergeScanRules(configuredRules, {
+    include: opts.include,
+    exclude: opts.exclude,
+  });
+  const targetPaths = await resolveTargetPaths(targetPath, openloomDir, opts.allRoots ?? false);
   const interactiveDefaults: InteractiveExtractOptions = {
     ocrProvider: (opts.ocrProvider as 'online' | 'local') ?? settings.preferences.ocr_provider ?? 'online',
     skipFaceDetection: opts.skipFaces ?? settings.preferences.skip_faces ?? false,
@@ -72,61 +82,12 @@ export async function extractCommand(
     await maybePersistInteractivePreferences(openloomDir, interactiveOverrides);
   }
 
-  let info: Awaited<ReturnType<typeof stat>>;
-  try {
-    info = await stat(resolved);
-  } catch {
-    console.error(`Error: path not found: ${resolved}`);
-    process.exit(1);
+  let hasFailure = false;
+  for (const target of targetPaths) {
+    const result = await runExtractForPath(target, { ...options, scanRules }, opts.json ?? false);
+    if (result.failed) hasFailure = true;
   }
-
-  // ── Single file ───────────────────────────────────────────────────────────
-  if (info.isFile()) {
-    try {
-      const meta = await extractFile(resolved, options);
-      if (opts.json) {
-        console.log(JSON.stringify(meta, null, 2));
-      } else {
-        printSingleResult(meta);
-      }
-    } catch (err) {
-      console.error(`Failed: ${(err as Error).message}`);
-      process.exit(1);
-    }
-    return;
-  }
-
-  // ── Directory ─────────────────────────────────────────────────────────────
-  if (!info.isDirectory()) {
-    console.error(`Error: not a file or directory: ${resolved}`);
-    process.exit(1);
-  }
-
-  console.log(`Scanning ${resolved} ...`);
-  const spinner = new ProgressBar();
-
-  const result = await extractDirectory(resolved, {
-    ...options,
-    onProgress: (update: ProgressUpdate) => {
-      spinner.update(update);
-    },
-  });
-
-  spinner.finish();
-  console.log('');
-
-  if (opts.json) {
-    console.log(JSON.stringify({
-      succeeded: result.succeeded.length,
-      failed:    result.failed.length,
-      durationMs: result.durationMs,
-      errors: result.failed,
-    }, null, 2));
-  } else {
-    printBatchResult(result);
-  }
-
-  if (result.failed.length > 0) process.exit(1);
+  if (hasFailure) process.exit(1);
 }
 
 async function ensureInitializedOrSetup(openloomDir: string, openloomOverride?: string): Promise<void> {
@@ -138,15 +99,90 @@ async function ensureInitializedOrSetup(openloomDir: string, openloomOverride?: 
   await setupCommand({ openloom: openloomOverride });
 }
 
-async function resolveTargetPath(targetPath: string | undefined, openloomDir: string): Promise<string> {
-  if (targetPath?.trim()) return targetPath;
+async function resolveTargetPaths(
+  targetPath: string | undefined,
+  openloomDir: string,
+  allRoots: boolean,
+): Promise<string[]> {
+  if (targetPath?.trim()) return [targetPath];
+
+  if (allRoots) {
+    const roots = await listRoots(openloomDir);
+    if (roots.length > 0) return roots.map((root) => root.path);
+  }
 
   const root = await getDefaultRoot(openloomDir);
-  if (root?.path) return root.path;
+  if (root?.path) return [root.path];
 
   console.error('Error: no extract path provided and no default root configured.');
-  console.error('Use "openloom setup" or "openloom roots set <path>" first, or pass a path.');
+  console.error('Use "openloom setup" or "openloom roots add <path>" first, or pass a path.');
   process.exit(1);
+  return [];
+}
+
+async function runExtractForPath(
+  targetPath: string,
+  options: Parameters<typeof extractFile>[1],
+  jsonMode: boolean,
+): Promise<{ failed: boolean }> {
+  const resolved = resolve(targetPath);
+  let info: Awaited<ReturnType<typeof stat>>;
+  try {
+    info = await stat(resolved);
+  } catch {
+    console.error(`Error: path not found: ${resolved}`);
+    return { failed: true };
+  }
+
+  if (info.isFile()) {
+    try {
+      const meta = await extractFile(resolved, options);
+      if (jsonMode) {
+        console.log(JSON.stringify(meta, null, 2));
+      } else {
+        printSingleResult(meta);
+      }
+      return { failed: false };
+    } catch (err) {
+      console.error(`Failed: ${(err as Error).message}`);
+      return { failed: true };
+    }
+  }
+
+  if (!info.isDirectory()) {
+    console.error(`Error: not a file or directory: ${resolved}`);
+    return { failed: true };
+  }
+
+  console.log(`Scanning ${resolved} ...`);
+  const spinner = new ProgressBar();
+  const result = await extractDirectory(resolved, {
+    ...options,
+    onProgress: (update: ProgressUpdate) => {
+      spinner.update(update);
+    },
+  });
+  spinner.finish();
+  console.log('');
+
+  if (jsonMode) {
+    console.log(
+      JSON.stringify(
+        {
+          path: resolved,
+          succeeded: result.succeeded.length,
+          failed: result.failed.length,
+          durationMs: result.durationMs,
+          errors: result.failed,
+        },
+        null,
+        2,
+      ),
+    );
+  } else {
+    printBatchResult(result);
+  }
+  return { failed: result.failed.length > 0 };
 }
 
 async function runInteractiveExtractPrompt(

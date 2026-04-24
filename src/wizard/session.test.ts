@@ -44,4 +44,36 @@ describe('WizardSession', () => {
 
     expect(session.getStatus()).toBe('cancelled');
   });
+
+  it('supports protocol next/answer flow without explicit prompter', async () => {
+    const session = new WizardSession(async (p) => {
+      await p.note('hello', 'greeting');
+      const name = await p.text({ message: 'name?' });
+      expect(name).toBe('Fan');
+      const ok = await p.confirm({ message: 'continue?', initialValue: true });
+      expect(ok).toBe(true);
+    });
+
+    const running = session.run();
+
+    const step1 = await session.next();
+    expect(step1.done).toBe(false);
+    expect(step1.step?.type).toBe('note');
+    session.answer(step1.step!.id, true);
+
+    const step2 = await session.next();
+    expect(step2.done).toBe(false);
+    expect(step2.step?.type).toBe('text');
+    session.answer(step2.step!.id, 'Fan');
+
+    const step3 = await session.next();
+    expect(step3.done).toBe(false);
+    expect(step3.step?.type).toBe('confirm');
+    session.answer(step3.step!.id, true);
+
+    const step4 = await session.next();
+    expect(step4.done).toBe(true);
+    expect(step4.status).toBe('done');
+    await running;
+  });
 });

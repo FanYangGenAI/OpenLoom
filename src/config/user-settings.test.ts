@@ -3,13 +3,19 @@ import { mkdtemp, rm } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import {
+  addRoot,
   getDefaultRoot,
+  getScanRules,
   isInitialized,
+  listRoots,
   loadSettings,
   markInitialized,
+  removeRoot,
+  resetScanRules,
   resolveOpenloomDir,
   saveSettings,
   setDefaultRoot,
+  updateScanRules,
   updatePreferences,
 } from './user-settings.js';
 
@@ -28,6 +34,8 @@ describe('user-settings', () => {
     const settings = await loadSettings(base);
     expect(settings.initialized).toBe(false);
     expect(settings.default_root).toBeNull();
+    expect(settings.roots).toEqual([]);
+    expect(settings.scan_rules.exclude.length).toBeGreaterThan(0);
     expect(settings.preferences.ocr_provider).toBe('online');
   });
 
@@ -68,6 +76,12 @@ describe('user-settings', () => {
       initialized_at: new Date().toISOString(),
       openloom_dir: base,
       default_root: { path: '/tmp/my-root' },
+      roots: [{ path: '/tmp/my-root' }, { path: '/tmp/my-root-2' }],
+      scan_rules: {
+        version: 1,
+        include: ['**/*.md'],
+        exclude: ['**/node_modules/**'],
+      },
       preferences: {
         ocr_provider: 'local',
         text_concurrency: 2,
@@ -79,6 +93,8 @@ describe('user-settings', () => {
     const loaded = await loadSettings(base);
     expect(loaded.preferences.ocr_provider).toBe('local');
     expect(loaded.default_root?.path).toContain('my-root');
+    expect(loaded.roots).toHaveLength(2);
+    expect(loaded.scan_rules.include).toContain('**/*.md');
   });
 
   it('updates preferences incrementally', async () => {
@@ -94,5 +110,65 @@ describe('user-settings', () => {
     expect(loaded.preferences.ocr_provider).toBe('local');
     expect(loaded.preferences.text_concurrency).toBe(9);
     expect(loaded.preferences.image_concurrency).toBe(3);
+  });
+
+  it('supports add/list/remove roots', async () => {
+    const base = await mkdtemp(join(tmpdir(), 'openloom-settings-'));
+    tempDirs.push(base);
+
+    await addRoot(base, '/tmp/source-a');
+    await addRoot(base, '/tmp/source-b');
+    await addRoot(base, '/tmp/source-a');
+    let roots = await listRoots(base);
+    expect(roots).toHaveLength(2);
+
+    await removeRoot(base, '/tmp/source-a');
+    roots = await listRoots(base);
+    expect(roots).toHaveLength(1);
+    expect(roots[0].path).toContain('source-b');
+  });
+
+  it('keeps backward compatibility from default_root to roots', async () => {
+    const base = await mkdtemp(join(tmpdir(), 'openloom-settings-'));
+    tempDirs.push(base);
+    await saveSettings(base, {
+      initialized: false,
+      initialized_at: null,
+      openloom_dir: null,
+      default_root: { path: '/tmp/legacy-root' },
+      roots: [],
+      scan_rules: {
+        version: 1,
+        include: [],
+        exclude: [],
+      },
+      preferences: {
+        ocr_provider: 'online',
+        text_concurrency: 5,
+        image_concurrency: 3,
+        skip_faces: false,
+      },
+    });
+
+    const loaded = await loadSettings(base);
+    expect(loaded.roots.some((root) => root.path.includes('legacy-root'))).toBe(true);
+  });
+
+  it('updates and resets scan rules', async () => {
+    const base = await mkdtemp(join(tmpdir(), 'openloom-settings-'));
+    tempDirs.push(base);
+
+    await updateScanRules(base, {
+      include: ['**/*.png'],
+      exclude: ['**/.cache/**'],
+    });
+    const customized = await getScanRules(base);
+    expect(customized.include).toContain('**/*.png');
+    expect(customized.exclude).toContain('**/.cache/**');
+
+    await resetScanRules(base);
+    const reset = await getScanRules(base);
+    expect(reset.include).toEqual([]);
+    expect(reset.exclude).toContain('**/node_modules/**');
   });
 });

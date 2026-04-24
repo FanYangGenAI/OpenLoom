@@ -19,14 +19,37 @@ export interface UserSettings {
   initialized_at: string | null;
   openloom_dir: string | null;
   default_root: RootConfig | null;
+  roots: RootConfig[];
+  scan_rules: ScanRules;
   preferences: UserPreferences;
 }
+
+export interface ScanRules {
+  version: 1;
+  include: string[];
+  exclude: string[];
+}
+
+const DEFAULT_SCAN_RULES: ScanRules = {
+  version: 1,
+  include: [],
+  exclude: [
+    '**/.git/**',
+    '**/node_modules/**',
+    '**/.openloom/**',
+    '**/.tmp/**',
+    '**/dist/**',
+    '**/*.log',
+  ],
+};
 
 const DEFAULT_SETTINGS: UserSettings = {
   initialized: false,
   initialized_at: null,
   openloom_dir: null,
   default_root: null,
+  roots: [],
+  scan_rules: DEFAULT_SCAN_RULES,
   preferences: {
     ocr_provider: 'online',
     text_concurrency: 5,
@@ -53,14 +76,20 @@ export async function loadSettings(openloomDir: string): Promise<UserSettings> {
   try {
     const raw = await readFile(settingsPath, 'utf8');
     const parsed = JSON.parse(raw) as Partial<UserSettings>;
-    return {
+    const merged: UserSettings = {
       ...DEFAULT_SETTINGS,
       ...parsed,
+      roots: normalizeRoots((parsed as Partial<UserSettings>).roots),
+      scan_rules: normalizeScanRules((parsed as Partial<UserSettings>).scan_rules),
       preferences: {
         ...DEFAULT_SETTINGS.preferences,
         ...parsed.preferences,
       },
     };
+    if (merged.default_root?.path) {
+      merged.roots = dedupeRoots([merged.default_root, ...merged.roots]);
+    }
+    return merged;
   } catch {
     return { ...DEFAULT_SETTINGS };
   }
@@ -93,6 +122,11 @@ export async function getDefaultRoot(openloomDir: string): Promise<RootConfig | 
   return settings.default_root;
 }
 
+export async function listRoots(openloomDir: string): Promise<RootConfig[]> {
+  const settings = await loadSettings(openloomDir);
+  return settings.roots;
+}
+
 export async function setDefaultRoot(
   openloomDir: string,
   rootPath: string | null,
@@ -104,9 +138,69 @@ export async function setDefaultRoot(
   const next: UserSettings = {
     ...settings,
     default_root: normalizedRoot,
+    roots: normalizedRoot ? dedupeRoots([normalizedRoot, ...settings.roots]) : settings.roots,
   };
   await saveSettings(openloomDir, next);
   return next;
+}
+
+export async function addRoot(openloomDir: string, rootPath: string): Promise<UserSettings> {
+  const settings = await loadSettings(openloomDir);
+  const normalized: RootConfig = {
+    path: isAbsolute(rootPath) ? rootPath : resolve(process.cwd(), rootPath),
+  };
+  const roots = dedupeRoots([...settings.roots, normalized]);
+  const defaultRoot = settings.default_root ?? roots[0] ?? null;
+  const next: UserSettings = {
+    ...settings,
+    roots,
+    default_root: defaultRoot,
+  };
+  await saveSettings(openloomDir, next);
+  return next;
+}
+
+export async function removeRoot(openloomDir: string, rootPath: string): Promise<UserSettings> {
+  const settings = await loadSettings(openloomDir);
+  const normalizedPath = isAbsolute(rootPath) ? rootPath : resolve(process.cwd(), rootPath);
+  const roots = settings.roots.filter((root) => root.path !== normalizedPath);
+  const defaultRoot =
+    settings.default_root?.path === normalizedPath ? roots[0] ?? null : settings.default_root;
+  const next: UserSettings = {
+    ...settings,
+    roots,
+    default_root: defaultRoot,
+  };
+  await saveSettings(openloomDir, next);
+  return next;
+}
+
+export async function getScanRules(openloomDir: string): Promise<ScanRules> {
+  const settings = await loadSettings(openloomDir);
+  return settings.scan_rules;
+}
+
+export async function updateScanRules(
+  openloomDir: string,
+  patch: Partial<ScanRules>,
+): Promise<UserSettings> {
+  const settings = await loadSettings(openloomDir);
+  const nextRules = normalizeScanRules({
+    ...settings.scan_rules,
+    ...patch,
+    include: patch.include ?? settings.scan_rules.include,
+    exclude: patch.exclude ?? settings.scan_rules.exclude,
+  });
+  const next: UserSettings = {
+    ...settings,
+    scan_rules: nextRules,
+  };
+  await saveSettings(openloomDir, next);
+  return next;
+}
+
+export async function resetScanRules(openloomDir: string): Promise<UserSettings> {
+  return updateScanRules(openloomDir, DEFAULT_SCAN_RULES);
 }
 
 export async function updatePreferences(
@@ -123,4 +217,33 @@ export async function updatePreferences(
   };
   await saveSettings(openloomDir, next);
   return next;
+}
+
+function normalizeRoots(roots: RootConfig[] | undefined): RootConfig[] {
+  return dedupeRoots(
+    (roots ?? [])
+      .filter((root): root is RootConfig => Boolean(root?.path?.trim()))
+      .map((root) => ({
+        path: isAbsolute(root.path) ? root.path : resolve(process.cwd(), root.path),
+      })),
+  );
+}
+
+function dedupeRoots(roots: RootConfig[]): RootConfig[] {
+  const seen = new Set<string>();
+  const deduped: RootConfig[] = [];
+  for (const root of roots) {
+    if (!root.path || seen.has(root.path)) continue;
+    seen.add(root.path);
+    deduped.push(root);
+  }
+  return deduped;
+}
+
+function normalizeScanRules(rules: Partial<ScanRules> | undefined): ScanRules {
+  return {
+    version: 1,
+    include: Array.from(new Set(rules?.include ?? DEFAULT_SCAN_RULES.include)),
+    exclude: Array.from(new Set(rules?.exclude ?? DEFAULT_SCAN_RULES.exclude)),
+  };
 }
