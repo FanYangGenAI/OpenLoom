@@ -1,6 +1,7 @@
 import { spawn, ChildProcess } from 'child_process';
 import { createInterface } from 'readline';
 import { FileEntry, ScanSummary } from './types.js';
+import { getDefaultScannerBinaryPath } from '../../utils/platform-paths.js';
 
 /**
  * Bridge to the Rust scanner binary
@@ -11,8 +12,8 @@ export class ScannerBridge {
   private process: ChildProcess | null = null;
 
   constructor(binaryPath?: string) {
-    // Default to the compiled binary in the project
-    this.binaryPath = binaryPath || '/Users/fanyang/repo/OpenLoom/crates/scanner/target/release/openloom-scanner';
+    // Resolve scanner binary path by OS with env override support.
+    this.binaryPath = binaryPath || getDefaultScannerBinaryPath();
   }
 
   /**

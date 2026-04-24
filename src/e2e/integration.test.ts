@@ -2,17 +2,20 @@
  * End-to-end integration test
  * Validates: CLI scan → Rust scanner → NDJSON → Node.js → SQLite
  */
-import { describe, it, expect, beforeEach } from 'vitest';
-import { spawn } from 'child_process';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { openDatabase, closeDatabase } from '../knowledge/index/schema.js';
 import { createBatchWriter } from '../knowledge/index/writer.js';
 import { createFileReader } from '../knowledge/index/reader.js';
 import { createScanner } from '../ingestion/scanner/scanner.js';
 import { join } from 'path';
 import { unlinkSync, existsSync } from 'fs';
+import { getDefaultE2ETestDbPath, getRepoRootPath, resolveExistingScannerBinaryPath } from '../utils/platform-paths.js';
 
 describe('E2E Integration', () => {
-  const testDbPath = '/tmp/openloom-test.db';
+  const testDbPath = getDefaultE2ETestDbPath();
+  const scannerBinary = resolveExistingScannerBinaryPath();
+  const repoRoot = getRepoRootPath();
+  const testDocDir = join(repoRoot, 'docs');
   let db: ReturnType<typeof openDatabase>;
   let reader: ReturnType<typeof createFileReader>;
 
@@ -34,10 +37,14 @@ describe('E2E Integration', () => {
   });
 
   it('should scan small directory and persist to SQLite', async () => {
+    if (!scannerBinary) {
+      console.warn('Skipping E2E scan test: scanner binary not found');
+      return;
+    }
     const scanId = 'e2e-test-001';
-    const testPath = '/Users/fanyang/repo/OpenLoom/doc';
-    
-    const scanner = createScanner();
+    const testPath = testDocDir;
+
+    const scanner = createScanner(scannerBinary);
     const batchWriter = createBatchWriter(db, scanId);
     
     let fileCount = 0;
@@ -57,10 +64,14 @@ describe('E2E Integration', () => {
   }, 30000); // 30s timeout
 
   it('should provide correct type distribution', async () => {
+    if (!scannerBinary) {
+      console.warn('Skipping E2E scan test: scanner binary not found');
+      return;
+    }
     const scanId = 'e2e-test-002';
-    const testPath = '/Users/fanyang/repo/OpenLoom';
-    
-    const scanner = createScanner();
+    const testPath = repoRoot;
+
+    const scanner = createScanner(scannerBinary);
     const batchWriter = createBatchWriter(db, scanId);
     
     for await (const entry of scanner.scan(scanId, testPath, { personal: true })) {

@@ -22,7 +22,7 @@ program
 program
   .command('extract <path>')
   .description('Extract metadata from a file or all supported files in a directory')
-  .option('--openloom <dir>',        'Path to .openloom data directory (default: ./.openloom)')
+  .option('--openloom <dir>',        'Path to OpenLoom data directory (default: OS-specific app data path)')
   .option('-f, --force',             'Re-extract even if metadata already exists (skip hash-cache)')
   .option('--ocr-provider <mode>',   'OCR provider: online (DeepSeek API) | local (Ollama)', 'online')
   .option('--skip-faces',            'Disable face detection (use if TF native bindings not installed)')

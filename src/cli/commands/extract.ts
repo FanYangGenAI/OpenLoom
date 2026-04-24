@@ -1,7 +1,7 @@
 import { stat } from 'fs/promises';
 import { resolve, basename } from 'path';
-import { join } from 'path';
 import { extractFile, extractDirectory, type ProgressUpdate } from '../../ingestion/extractors/index.js';
+import { getDefaultOpenLoomHome } from '../../utils/platform-paths.js';
 
 interface ExtractCommandOptions {
   openloom?: string;
@@ -18,7 +18,7 @@ export async function extractCommand(
   opts: ExtractCommandOptions,
 ): Promise<void> {
   const resolved = resolve(targetPath);
-  const openloomDir = opts.openloom ?? join(process.cwd(), '.openloom');
+  const openloomDir = opts.openloom ?? getDefaultOpenLoomHome();
 
   const options = {
     openloomDir,

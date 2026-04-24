@@ -17,7 +17,10 @@
     "test": "vitest",
     "lint": "eslint src --ext .ts",
     "scan": "node --import tsx src/cli/index.ts scan",
-    "serve": "node --import tsx src/gateway/server.ts"
+    "serve": "node --import tsx src/gateway/server.ts",
+    "ui-ts:dev": "npm --prefix ui-ts run dev",
+    "ui-ts:build": "npm --prefix ui-ts run build",
+    "ui-ts:preview": "npm --prefix ui-ts run preview"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

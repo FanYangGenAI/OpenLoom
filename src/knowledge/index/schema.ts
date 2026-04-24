@@ -1,8 +1,9 @@
 import Database from 'better-sqlite3';
-import { join } from 'path';
+import { dirname, join } from 'path';
 import { existsSync, mkdirSync } from 'fs';
+import { getDefaultOpenLoomHome } from '../../utils/platform-paths.js';
 
-const DEFAULT_DB_PATH = join(process.env.HOME || '.', '.openloom', 'data.db');
+const DEFAULT_DB_PATH = join(getDefaultOpenLoomHome(), 'data.db');
 
 /**
  * Initialize database schema
@@ -83,7 +84,7 @@ export function openDatabase(dbPath?: string): Database.Database {
   const path = dbPath || DEFAULT_DB_PATH;
   
   // Ensure directory exists
-  const dir = join(path, '..');
+  const dir = dirname(path);
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true });
   }
