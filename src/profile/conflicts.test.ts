@@ -60,10 +60,12 @@ describe('applyConflictDecisions', () => {
       ],
     };
 
-    await applyConflictDecisions(base, doc, [
+    const result = await applyConflictDecisions(base, doc, [
       { conflictId: 'c1', selectedValue: 'Male' },
       { conflictId: 'c2', selectedValue: 'Founder (2023 - Present)' },
     ]);
+    expect(result.resolvedCount).toBe(2);
+    expect(result.userUpdatedCount).toBe(1);
 
     const userRaw = await readFile(join(base, 'agent', 'USER.md'), 'utf8');
     expect(userRaw).toContain('- gender: Male');

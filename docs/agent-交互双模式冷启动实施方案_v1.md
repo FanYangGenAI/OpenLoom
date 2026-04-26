@@ -279,16 +279,16 @@ CLI 与 UI 共用同一个 WizardSession 协议：
 
 1) `src/wizard/bootstrap-mode.ts`（新增）
 
-- [ ] 定义 `BootstrapMode`：
+- [x] 定义 `BootstrapMode`：
   - `interactive_blank`
   - `metadata_guided`
   - `normal_chat`
-- [ ] 实现 `detectBootstrapMode(openloomDir)`：
+- [x] 实现 `detectBootstrapMode(openloomDir)`：
   - 检查 `.openloom/metadata` 是否有有效输入
   - 检查 `USER.md` 是否仍为模板/低信息状态
   - 检查 `workspace-state.json` 是否完成 onboarding
   - 检查 `USER_CONFLICTS.md` 是否有待确认关键冲突
-- [ ] 返回判定结果 + 判定理由（用于日志与后续调试）
+- [x] 返回判定结果 + 判定理由（用于日志与后续调试）
 
 2) `src/wizard/onboarding.ts`（改造）
 
@@ -310,18 +310,18 @@ CLI 与 UI 共用同一个 WizardSession 协议：
 
 4) `src/cli/commands/setup.ts`（改造）
 
-- [ ] setup 启动时先调用 `detectBootstrapMode()`
-- [ ] 根据模式路由到：
+- [x] setup 启动时先调用 `detectBootstrapMode()`
+- [x] 根据模式路由到：
   - 模式一：`runOnboardingWizard()`
   - 模式二：`runGuidedOnboardingWizard()`
-- [ ] 统一收口到 `onboarding_finalize`：
+- [x] 统一收口到 `onboarding_finalize`：
   - 写记忆文件
   - 更新 `workspace-state`
   - 输出摘要结果
 
 5) `src/config/workspace-state.ts`（改造）
 
-- [ ] 扩展状态字段：
+- [x] 扩展状态字段：
   - `bootstrapMode`
   - `onboardingStage`
   - `pendingConflictCount`
@@ -329,27 +329,27 @@ CLI 与 UI 共用同一个 WizardSession 协议：
 
 6) `src/profile/io.ts` 或新增 `src/profile/conflict-resolution.ts`（二选一）
 
-- [ ] 提供“确认结果回写”能力：
+- [x] 提供“确认结果回写”能力：
   - 更新 `USER.md` 已确认事实
   - 更新 `USER_CONFLICTS.md` 状态（pending -> resolved/deferred）
   - 写入置信度与用户决策说明
 
 7) `src/config/agent-memory/*`（小幅改造）
 
-- [ ] 将模式二中的用户确认规则写入 `lessons.md`
+- [x] 将模式二中的用户确认规则写入 `lessons.md`
 - [ ] 对同类冲突规则支持复用（例如并行角色软冲突默认不阻断）
 
 ### 13.2 测试清单
 
 1) 单元测试
 
-- [ ] `src/wizard/bootstrap-mode.test.ts`
+- [x] `src/wizard/bootstrap-mode.test.ts`
   - metadata 为空 -> `interactive_blank`
   - metadata 存在 -> `metadata_guided`
   - onboarding 已完成且无 pending -> `normal_chat`
 - [ ] `src/wizard/onboarding-guided.test.ts`
   - 确认/修正/跳过/延后动作输出正确
-- [ ] `src/config/workspace-state.test.ts`
+- [x] `src/config/workspace-state.test.ts`
   - 新增字段读写与默认值兼容
 
 2) 集成测试
@@ -374,8 +374,8 @@ CLI 与 UI 共用同一个 WizardSession 协议：
 
 ### 13.4 完成定义（DoD）
 
-- [ ] `setup` 能自动选择双模式并完成流程  
-- [ ] 模式二不再要求用户重复输入已知信息  
-- [ ] 关键冲突必须确认后才更新 `USER.md`  
-- [ ] `workspace-state` 可用于恢复与审计  
+- [x] `setup` 能自动选择双模式并完成流程  
+- [x] 模式二不再要求用户重复输入已知信息  
+- [x] 关键冲突必须确认后才更新 `USER.md`  
+- [x] `workspace-state` 可用于恢复与审计  
 - [ ] 所有新增逻辑有对应测试覆盖  

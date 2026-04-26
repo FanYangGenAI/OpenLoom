@@ -45,6 +45,9 @@ export async function setupCommand(options: SetupOptions): Promise<void> {
   const pendingConflicts = listPendingConflicts(conflictsDoc);
   const modeDecision = await detectBootstrapMode(openloomDir);
   const prompter = createCliWizardPrompter({ nonInteractive: options.nonInteractive });
+  let guidedResolved = 0;
+  let guidedUserUpdated = 0;
+  let guidedPendingAfter = pendingConflicts.length;
 
   await ensureAgentBootstrapFiles(openloomDir);
   await updateWorkspaceState(openloomDir, {
@@ -72,10 +75,12 @@ export async function setupCommand(options: SetupOptions): Promise<void> {
           await updateWorkspaceState(openloomDir, {
             onboardingStage: 'conflict_resolution',
           });
-          const updatedConflicts = await applyConflictDecisions(openloomDir, conflictsDoc, guided.decisions);
+          const result = await applyConflictDecisions(openloomDir, conflictsDoc, guided.decisions);
+          guidedResolved = result.resolvedCount;
+          guidedUserUpdated = result.userUpdatedCount;
+          guidedPendingAfter = result.doc.conflicts.filter((item) => item.status === 'pending_user_confirm').length;
           await updateWorkspaceState(openloomDir, {
-            pendingConflictCount: updatedConflicts.conflicts.filter((item) => item.status === 'pending_user_confirm')
-              .length,
+            pendingConflictCount: guidedPendingAfter,
           });
         }
         rootPath = guided.defaultRoot?.trim() || options.root?.trim();
@@ -142,6 +147,12 @@ export async function setupCommand(options: SetupOptions): Promise<void> {
     console.log(`- Settings saved: ${openloomDir}/config/user-settings.json`);
     console.log(`- Workspace state saved: ${openloomDir}/agent/workspace-state.json`);
     console.log(`- Lessons saved: ${openloomDir}/agent/lessons.md`);
+    if (modeDecision.mode !== 'interactive_blank') {
+      console.log('- Guided conflict summary:');
+      console.log(`  resolved: ${guidedResolved}`);
+      console.log(`  USER.md General updates: ${guidedUserUpdated}`);
+      console.log(`  pending_after: ${guidedPendingAfter}`);
+    }
   } finally {
     prompter.close();
   }

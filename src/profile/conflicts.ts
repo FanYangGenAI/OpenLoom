@@ -18,6 +18,12 @@ export interface ConflictDecision {
   resolutionNote?: string;
 }
 
+export interface ConflictApplyResult {
+  doc: UserConflictsDocument;
+  resolvedCount: number;
+  userUpdatedCount: number;
+}
+
 const FACT_TO_GENERAL_FIELD: Array<{ prefix: string; field: string }> = [
   { prefix: 'identity.official_name', field: 'official_name' },
   { prefix: 'identity.legal_name', field: 'official_name' },
@@ -138,7 +144,7 @@ export async function applyConflictDecisions(
   openloomDir: string,
   doc: UserConflictsDocument,
   decisions: ConflictDecision[],
-): Promise<UserConflictsDocument> {
+): Promise<ConflictApplyResult> {
   const byId = new Map(decisions.map((decision) => [decision.conflictId, decision]));
   const next: UserConflictsDocument = {
     ...doc,
@@ -176,5 +182,9 @@ export async function applyConflictDecisions(
       `guided-onboarding updated USER.md General fields: ${userUpdatedCount}`,
     );
   }
-  return next;
+  return {
+    doc: next,
+    resolvedCount,
+    userUpdatedCount,
+  };
 }
