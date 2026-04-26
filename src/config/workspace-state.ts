@@ -3,6 +3,15 @@ import { dirname, resolve } from 'path';
 
 export interface WorkspaceState {
   version: 1;
+  bootstrapMode?: 'interactive_blank' | 'metadata_guided' | 'normal_chat';
+  onboardingStage?:
+    | 'mode_routing'
+    | 'onboarding_blank'
+    | 'onboarding_guided'
+    | 'conflict_resolution'
+    | 'onboarding_finalize'
+    | 'completed';
+  pendingConflictCount?: number;
   bootstrapSeededAt?: string;
   bootstrapCompletedAt?: string;
   bootstrapLifecycleStatus?: 'seeded' | 'completed';

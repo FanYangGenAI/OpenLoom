@@ -33,11 +33,17 @@ describe('workspace-state', () => {
       onboardingCompletedAt: new Date().toISOString(),
       lastWizardSource: 'setup',
       bootstrapLifecycleStatus: 'completed',
+      bootstrapMode: 'metadata_guided',
+      onboardingStage: 'completed',
+      pendingConflictCount: 2,
     });
 
     expect(await isOnboardingCompleted(base)).toBe(true);
     const state = await loadWorkspaceState(base);
     expect(state.lastWizardSource).toBe('setup');
     expect(state.bootstrapLifecycleStatus).toBe('completed');
+    expect(state.bootstrapMode).toBe('metadata_guided');
+    expect(state.onboardingStage).toBe('completed');
+    expect(state.pendingConflictCount).toBe(2);
   });
 });

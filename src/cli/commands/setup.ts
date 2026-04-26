@@ -9,7 +9,10 @@ import {
 import { upsertLessonsSections } from '../../config/lessons-memory.js';
 import { createCliWizardPrompter } from '../../wizard/prompts.js';
 import { runOnboardingWizard } from '../../wizard/onboarding.js';
+import { runGuidedOnboardingWizard } from '../../wizard/onboarding-guided.js';
+import { detectBootstrapMode } from '../../wizard/bootstrap-mode.js';
 import { WizardSession } from '../../wizard/session.js';
+import { applyConflictDecisions, listPendingConflicts, readUserConflictsDoc } from '../../profile/conflicts.js';
 import {
   isOnboardingCompleted,
   updateWorkspaceState,
@@ -38,45 +41,81 @@ export async function setupCommand(options: SetupOptions): Promise<void> {
   const openloomDir = resolveOpenloomDir(options.openloom);
   const settings = await loadSettings(openloomDir);
   const alreadyOnboarded = await isOnboardingCompleted(openloomDir);
+  const conflictsDoc = await readUserConflictsDoc(openloomDir);
+  const pendingConflicts = listPendingConflicts(conflictsDoc);
+  const modeDecision = await detectBootstrapMode(openloomDir);
   const prompter = createCliWizardPrompter({ nonInteractive: options.nonInteractive });
 
   await ensureAgentBootstrapFiles(openloomDir);
   await updateWorkspaceState(openloomDir, {
+    bootstrapMode: modeDecision.mode,
+    pendingConflictCount: pendingConflicts.length,
+    onboardingStage: 'mode_routing',
     lastWizardRunAt: new Date().toISOString(),
     lastWizardSource: 'setup',
   });
 
   try {
     const session = new WizardSession(async (wizard) => {
-      const onboarding = await runOnboardingWizard(wizard, {
-        initialRoot: options.root,
-      });
+      let rootPath: string | undefined;
+      if (modeDecision.mode !== 'interactive_blank') {
+        await updateWorkspaceState(openloomDir, {
+          onboardingStage: 'onboarding_guided',
+        });
+        const guided = await runGuidedOnboardingWizard(wizard, {
+          pendingConflictCount: pendingConflicts.length,
+          hasPriorOnboarding: alreadyOnboarded,
+          initialRoot: options.root,
+          pendingConflicts,
+        });
+        if (guided.decisions.length > 0 && conflictsDoc) {
+          await updateWorkspaceState(openloomDir, {
+            onboardingStage: 'conflict_resolution',
+          });
+          const updatedConflicts = await applyConflictDecisions(openloomDir, conflictsDoc, guided.decisions);
+          await updateWorkspaceState(openloomDir, {
+            pendingConflictCount: updatedConflicts.conflicts.filter((item) => item.status === 'pending_user_confirm')
+              .length,
+          });
+        }
+        rootPath = guided.defaultRoot?.trim() || options.root?.trim();
+      } else {
+        await updateWorkspaceState(openloomDir, {
+          onboardingStage: 'onboarding_blank',
+        });
+        const onboarding = await runOnboardingWizard(wizard, {
+          initialRoot: options.root,
+        });
 
-      await upsertLessonsSections(
-        openloomDir,
-        {
+        await upsertLessonsSections(
+          openloomDir,
+          {
+            preferredUserName: onboarding.preferredUserName,
+            preferredAgentName: onboarding.preferredAgentName,
+            tone: onboarding.tone,
+            languagePreference: onboarding.languagePreference,
+            formatPreference: onboarding.formatPreference,
+          },
+          settings.initialized || alreadyOnboarded
+            ? 'refresh onboarding preferences'
+            : 'initial onboarding capture',
+        );
+
+        await updateBootstrapMemoryFiles(openloomDir, {
           preferredUserName: onboarding.preferredUserName,
           preferredAgentName: onboarding.preferredAgentName,
           tone: onboarding.tone,
           languagePreference: onboarding.languagePreference,
           formatPreference: onboarding.formatPreference,
-        },
-        settings.initialized || alreadyOnboarded
-          ? 'refresh onboarding preferences'
-          : 'initial onboarding capture',
-      );
-
-      await updateBootstrapMemoryFiles(openloomDir, {
-        preferredUserName: onboarding.preferredUserName,
-        preferredAgentName: onboarding.preferredAgentName,
-        tone: onboarding.tone,
-        languagePreference: onboarding.languagePreference,
-        formatPreference: onboarding.formatPreference,
-      });
+        });
+        rootPath = onboarding.defaultRoot?.trim() || options.root?.trim();
+      }
 
       printEnvironmentChecks();
+      await updateWorkspaceState(openloomDir, {
+        onboardingStage: 'onboarding_finalize',
+      });
 
-      const rootPath = onboarding.defaultRoot?.trim() || options.root?.trim();
       if (rootPath) {
         await setDefaultRoot(openloomDir, resolve(rootPath));
       }
@@ -95,6 +134,7 @@ export async function setupCommand(options: SetupOptions): Promise<void> {
     await markInitialized(openloomDir);
     await updateWorkspaceState(openloomDir, {
       onboardingCompletedAt: new Date().toISOString(),
+      onboardingStage: 'completed',
     });
     await finalizeBootstrapLifecycle(openloomDir);
 
