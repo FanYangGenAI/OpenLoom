@@ -5,6 +5,7 @@ import { statusCommand } from './commands/status.js';
 import { serveCommand } from './commands/serve.js';
 import { extractCommand } from './commands/extract.js';
 import { setupCommand } from './commands/setup.js';
+import { profileBuildCommand, profileResetCommand } from './commands/profile.js';
 import {
   rootsAddCommand,
   rootsClearCommand,
@@ -74,6 +75,24 @@ program
   .option('--root <path>', 'Default user data root directory')
   .option('--non-interactive', 'Skip prompts and use defaults/pending placeholders')
   .action(setupCommand);
+
+const profile = program
+  .command('profile')
+  .description('Build and manage user profile from extracted metadata');
+
+profile
+  .command('build')
+  .description('Build USER.md from .openloom/metadata with conflict gating')
+  .option('--openloom <dir>', 'Path to .openloom data directory (default: ./.openloom)')
+  .option('-f, --force', 'Re-process already processed metadata hashes')
+  .option('--concurrency <n>', 'Max parallel metadata claim workers', '6')
+  .action(profileBuildCommand);
+
+profile
+  .command('reset')
+  .description('Cold start: template USER.md, clear profile state and related agent files')
+  .option('--openloom <dir>', 'Path to .openloom data directory (default: ./.openloom)')
+  .action(profileResetCommand);
 
 const roots = program
   .command('roots')
