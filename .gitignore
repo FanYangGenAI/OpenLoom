@@ -28,3 +28,6 @@ dist/
 .openloom/agent/profile-extract-state.json
 .openloom/agent/workspace-state.json
 .openloom/agent/USER_CONFLICTS.md
+.openloom/agent/USER.md
+.openloom/agent/USER_CHANGELOG.md
+.openloom/agent/USER_VERSION_MANIFEST.json
