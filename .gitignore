@@ -16,3 +16,15 @@ dist/
 # Build outputs
 .env
 .env.local
+
+# Local runtime artifacts
+.tmp/
+.openloom/metadata/
+.openloom/config/user-settings.json
+.openloom/agent/BOOTSTRAP.md
+.openloom/agent/IDENTITY.md
+.openloom/agent/SOUL.md
+.openloom/agent/lessons.md
+.openloom/agent/profile-extract-state.json
+.openloom/agent/workspace-state.json
+.openloom/agent/USER_CONFLICTS.md

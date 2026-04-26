@@ -1,48 +1,25 @@
 {
   "schema_version": "1.0.0",
-  "profile_file": ".openloom/agent/USER.md",
-  "changelog_file": ".openloom/agent/USER_CHANGELOG.md",
-  "snapshot_dir": ".openloom/agent/snapshots",
   "current_version": {
-    "version_id": "user-v1-2026-04-24T13-10-00Z",
-    "profile_schema_version": "1.0.0",
+    "version_id": "user-v1-2026-04-24T22-26-40.776Z",
     "parent_version": null,
-    "promoted_at": "2026-04-24T13:10:00Z",
+    "promoted_at": "2026-04-24T22:26:40.776Z",
     "status": "active",
     "generated_from_evidence_hashes": [
-      "b0200ef1e8e9d0efce7bd895ee964477a354e22398a3fa2bba81cef3cd2999d9",
+      "23c1289e822c1b7ce91e948b46bb28afa33c16b7c190ab6bd6c29b825b10e4d9",
+      "395b48a44017067609298cbc1ec9e4231e344fc746be5ccc946fcb057b575a88",
+      "49e44770944bd09bca5502d119366a2bed5e383554c379aafe13ca143dd09b17",
       "59b1506151ed58ffca8d32fb3073aba7d6d425c2c4bd325e5869ba5777836bff",
-      "a29d13b82052f10cd2af2c91ead5c6b6d0877c91031fff4da5153bdf37e56ef3",
+      "6744299e118cb6541346ded519f22b2384a2119f1e833a802163afd15580de00",
       "6fab25e033e949fb5139f22825d25632bb49540c5912884827fcb59e95c74c22",
+      "a29d13b82052f10cd2af2c91ead5c6b6d0877c91031fff4da5153bdf37e56ef3",
+      "d11624356295fdec5ccd7000144c0995a450555968c07205e4d7283bed9a5a20",
+      "e67bd2f4cdb6611e014f0e87ecf4bd6118c5815f2c25578929b5bd2772b5b197",
+      "f4ed344322bbe0a10c8f253ceed4714bd2fe4de5c0045b40bad89833afef4350",
       "5e53adada89e6adfdd71e4bd99096027bb0fc7fa5cca14bdc8dac2c337260137",
-      "99bdfc10f407f7c11140f03561e85dd02c6f5061fa0d3d0e26faaf17738a4339"
-    ],
-    "validation": {
-      "consistency_check": "pass",
-      "traceability_check": "pass",
-      "privacy_check": "pass",
-      "readability_check": "pass"
-    }
-  },
-  "snapshots": [],
-  "update_pipeline": {
-    "stages": [
-      "collect_incremental_metadata",
-      "normalize_and_merge_claims",
-      "score_confidence_and_detect_conflicts",
-      "build_candidate_profile",
-      "run_validation_gates",
-      "promote_to_head_and_write_snapshot"
-    ],
-    "promotion_policy": "Only promote when all validation gates pass",
-    "dirty_data_policy": "Keep conflicting or low-confidence claims in quarantine and do not promote to canonical narrative"
-  },
-  "rollback": {
-    "default_strategy": "restore_last_good_snapshot",
-    "supported_modes": [
-      "previous_version",
-      "specific_version",
-      "field_level_partial"
+      "8510e7e0b1b5d8f282d5aa5c0d07a524b717a6260e0bee5d26a8cc707b5757fb",
+      "99bdfc10f407f7c11140f03561e85dd02c6f5061fa0d3d0e26faaf17738a4339",
+      "b0200ef1e8e9d0efce7bd895ee964477a354e22398a3fa2bba81cef3cd2999d9"
     ]
   }
 }
